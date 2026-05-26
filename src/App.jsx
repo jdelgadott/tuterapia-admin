@@ -268,16 +268,44 @@ function EmpresasView({ companies, reload }) {
       </Card>}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {companies.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin empresas.</div></Card>}
-        {companies.map(c=><div key={c.id} style={{background:P.white,borderRadius:12,border:`1px solid ${P.border}`,padding:"16px 20px",display:"flex",alignItems:"center",gap:16}}>
-          <div style={{width:40,height:40,borderRadius:10,background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <span style={{color:"#fff",fontWeight:700,fontSize:12}}>{c.name?.slice(0,2).toUpperCase()}</span>
+        {companies.map(co=><div key={co.id} style={{background:P.white,borderRadius:12,border:`1px solid ${P.border}`,padding:"16px 20px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:16}}>
+            <div style={{width:40,height:40,borderRadius:10,background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <span style={{color:"#fff",fontWeight:700,fontSize:12}}>{co.name?.slice(0,2).toUpperCase()}</span>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:2}}>{co.name}</div>
+              <div style={{fontSize:12,color:P.textMuted}}>@{co.domain} · {co.plan_type} · {co.monthly_plan} ses/mes · {co.start_date||"—"}</div>
+            </div>
+            <Badge text={co.plan_type}/>
+            <button onClick={()=>del(co.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16,padding:"4px"}}>🗑</button>
           </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:2}}>{c.name}</div>
-            <div style={{fontSize:12,color:P.textMuted}}>@{c.domain} · {c.plan_type} · {c.monthly_plan} ses/mes · {c.start_date||"—"}</div>
+          <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${P.border}`,display:"flex",gap:24,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:12,color:P.textMuted}}>Consultoría estratégica:</span>
+              <button onClick={async()=>{ await supabase.from("companies").update({consultoria_activa:!co.consultoria_activa}).eq("id",co.id); reload(); }}
+                style={{background:co.consultoria_activa?P.primary:P.gray50,color:co.consultoria_activa?"#fff":P.textMuted,border:`1px solid ${co.consultoria_activa?P.primary:P.border}`,borderRadius:20,padding:"4px 14px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                {co.consultoria_activa?"Activada":"Inactiva"}
+              </button>
+              {co.consultoria_solicitada&&!co.consultoria_activa&&<span style={{fontSize:11,color:P.accent,fontWeight:500}}>⏳ Solicitud pendiente</span>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:12,color:P.textMuted}}>Encuestas:</span>
+              <select value={co.encuesta_frecuencia||"trimestral"}
+                onChange={async(e)=>{ await supabase.from("companies").update({encuesta_frecuencia:e.target.value}).eq("id",co.id); reload(); }}
+                style={{padding:"4px 10px",border:`1px solid ${P.border}`,borderRadius:6,fontSize:11,color:P.text,background:P.white,cursor:"pointer"}}>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:12,color:P.textMuted}}>Referente TT:</span>
+              <input defaultValue={co.referente_email||"firoldi@tuterapia.com.uy"}
+                onBlur={async(e)=>{ await supabase.from("companies").update({referente_email:e.target.value}).eq("id",co.id); }}
+                style={{padding:"4px 10px",border:`1px solid ${P.border}`,borderRadius:6,fontSize:11,color:P.text,background:P.white,width:220}}/>
+            </div>
           </div>
-          <Badge text={c.plan_type}/>
-          <button onClick={()=>del(c.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16,padding:"4px"}}>🗑</button>
         </div>)}
       </div>
     </div>
