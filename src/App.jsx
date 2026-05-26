@@ -636,6 +636,315 @@ function UsuariosView({ companies }) {
 }
 
 
+// ── FACTURACIÓN ────────────────────────────────────────────────────
+function FacturacionView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ period:"", amount:"", status:"pendiente", invoice:"" });
+  const [uploading, setUploading] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+
+  async function load() {
+    const {data} = await supabase.from("billing").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRows(data||[]);
+  }
+
+  async function save() {
+    if(!form.period||!form.amount){ setMsg("Período y monto son obligatorios."); return; }
+    const {error} = await supabase.from("billing").insert([{...form, company_id:companyId, amount:parseInt(form.amount)}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Factura creada."); setShowForm(false); load(); setForm({period:"",amount:"",status:"pendiente",invoice:""}); }
+  }
+
+  async function uploadPDF(id, file) {
+    setUploading(u=>({...u,[id]:true}));
+    const path = `${companyId}/${id}.pdf`;
+    const {error:upErr} = await supabase.storage.from("facturas").upload(path, file, {upsert:true});
+    if(upErr){ setMsg("Error subiendo PDF: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data:{publicUrl}} = supabase.storage.from("facturas").getPublicUrl(path);
+    await supabase.from("billing").update({file_url:publicUrl}).eq("id",id);
+    setUploading(u=>({...u,[id]:false}));
+    setMsg("PDF subido correctamente.");
+    load();
+  }
+
+  async function togglePaid(row) {
+    const newStatus = row.status==="pagado"?"pendiente":"pagado";
+    await supabase.from("billing").update({status:newStatus}).eq("id",row.id);
+    load();
+  }
+
+  async function sendReminder(row) {
+    const company = companies.find(co=>co.id===companyId);
+    if(!company?.referente_email){ setMsg("Esta empresa no tiene referente asignado."); return; }
+    try {
+      await fetch("https://api.resend.com/emails", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer re_9rj91mUx_K7pxQ8tKqs6SFoZmZskNTi2n"},
+        body:JSON.stringify({
+          from:"onboarding@resend.dev",
+          to:company.referente_email,
+          subject:`Recordatorio de pago — ${row.period} · Tu Terapia`,
+          html:`<p>Hola,</p><p>Te recordamos que la factura del período <b>${row.period}</b> por <b>UY$ ${row.amount.toLocaleString()}</b> se encuentra pendiente de pago.</p><p>Podés descargarla desde tu <a href="https://tuterapia-dashempresa.vercel.app">panel de bienestar</a>.</p><p>Ante cualquier consulta, no dudes en escribirnos.</p><p>El equipo de Tu Terapia</p>`
+        })
+      });
+      setMsg(`Recordatorio enviado a ${company.referente_email}`);
+    } catch(e) { setMsg("Error enviando recordatorio."); }
+  }
+
+  async function del(id) {
+    if(!confirm("¿Eliminar esta factura?")) return;
+    await supabase.from("billing").delete().eq("id",id); load();
+  }
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12,fontWeight:500}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{rows.length} facturas</div>
+          <Btn onClick={()=>setShowForm(!showForm)}>+ Nueva factura</Btn>
+        </div>
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nueva factura</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Período (ej. May 2026)" value={form.period} onChange={v=>setForm({...form,period:v})}/>
+            <Input label="Monto (UYU)" value={form.amount} onChange={v=>setForm({...form,amount:v})} type="number"/>
+            <Input label="N° factura" value={form.invoice} onChange={v=>setForm({...form,invoice:v})} placeholder="ej. TT-2026-051"/>
+            <Select label="Estado" value={form.status} onChange={v=>setForm({...form,status:v})}
+              options={[{value:"pendiente",label:"Pendiente"},{value:"pagado",label:"Pagado"}]}/>
+          </div>
+          <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        </Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin facturas aún.</div></Card>}
+          {rows.map(r=><Card key={r.id}>
+            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:3}}>{r.period}</div>
+                <div style={{fontSize:12,color:P.textMuted}}>{r.invoice} · UY$ {r.amount?.toLocaleString()}</div>
+              </div>
+              <Badge text={r.status==="pagado"?"Pagado":"Pendiente"} bg={r.status==="pagado"?P.lighter:P.redBg} color={r.status==="pagado"?P.primary:P.red}/>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {/* Upload PDF */}
+                <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                  {uploading[r.id]?"Subiendo...":r.file_url?"✓ PDF":"⬆ Subir PDF"}
+                  <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadPDF(r.id,e.target.files[0])}/>
+                </label>
+                {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver PDF</a>}
+                <button onClick={()=>togglePaid(r)} style={{background:r.status==="pagado"?P.redBg:P.lighter,color:r.status==="pagado"?P.red:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  {r.status==="pagado"?"Marcar pendiente":"Marcar pagado"}
+                </button>
+                {r.status==="pendiente"&&<button onClick={()=>sendReminder(r)} style={{background:"#FFF8E1",color:"#F57F17",border:"1px solid #FFE082",borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>✉ Recordatorio</button>}
+                <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+              </div>
+            </div>
+          </Card>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ── TALLERES ───────────────────────────────────────────────────────
+function TalleresView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [tab, setTab] = useState("realizados");
+  const [rows, setRows] = useState([]);
+  const [recs, setRecs] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [showRecForm, setShowRecForm] = useState(false);
+  const [form, setForm] = useState({ title:"", date:"", speaker:"", initials:"", type:"Activación", lang:"Español", rating:"" });
+  const [recForm, setRecForm] = useState({ title:"", desc:"", month:"" });
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId){ load(); loadRecs(); } },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("workshops").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRows(data||[]);
+  }
+  async function loadRecs() {
+    const {data} = await supabase.from("workshops_recommended").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRecs(data||[]);
+  }
+  async function save() {
+    if(!form.title||!form.date){ setMsg("Título y fecha son obligatorios."); return; }
+    const {error} = await supabase.from("workshops").insert([{...form, company_id:companyId, rating:parseFloat(form.rating)||null}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Taller guardado."); setShowForm(false); load(); setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:""}); }
+  }
+  async function saveRec() {
+    if(!recForm.title){ setMsg("Título obligatorio."); return; }
+    const {error} = await supabase.from("workshops_recommended").insert([{...recForm, company_id:companyId}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Recomendación guardada."); setShowRecForm(false); loadRecs(); setRecForm({title:"",desc:"",month:""}); }
+  }
+  async function del(id) { await supabase.from("workshops").delete().eq("id",id); load(); }
+  async function delRec(id) { await supabase.from("workshops_recommended").delete().eq("id",id); loadRecs(); }
+
+  const TIPOS=["Activación","Concientización","Mindfulness","Liderazgo","8M","Otro"];
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`1px solid ${P.border}`,paddingBottom:0}}>
+          {["realizados","recomendados"].map(t=><button key={t} onClick={()=>setTab(t)} style={{fontSize:12,fontWeight:tab===t?600:400,color:tab===t?P.primary:P.textMuted,background:"none",border:"none",borderBottom:tab===t?`2px solid ${P.primary}`:"2px solid transparent",padding:"8px 16px",cursor:"pointer",textTransform:"capitalize"}}>{t}</button>)}
+        </div>
+
+        {tab==="realizados"&&<>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{fontSize:13,color:P.textMuted}}>{rows.length} talleres realizados</div>
+            <Btn onClick={()=>setShowForm(!showForm)}>+ Agregar taller</Btn>
+          </div>
+          {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+            <SectionTitle>Nuevo taller</SectionTitle>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Mindfulness en el trabajo"/>
+              <Input label="Fecha (ej. Ago 2025)" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+              <Input label="Speaker" value={form.speaker} onChange={v=>setForm({...form,speaker:v})} placeholder="ej. Equipo Tu Terapia"/>
+              <Input label="Iniciales" value={form.initials} onChange={v=>setForm({...form,initials:v})} placeholder="ej. TT"/>
+              <Select label="Tipo" value={form.type} onChange={v=>setForm({...form,type:v})} options={TIPOS.map(t=>({value:t,label:t}))}/>
+              <Select label="Idioma" value={form.lang} onChange={v=>setForm({...form,lang:v})} options={[{value:"Español",label:"Español"},{value:"Inglés",label:"Inglés"},{value:"Portugués",label:"Portugués"}]}/>
+              <Input label="Rating (ej. 4.8)" value={form.rating} onChange={v=>setForm({...form,rating:v})} type="number"/>
+            </div>
+            <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+          </Card>}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin talleres realizados aún.</div></Card>}
+            {rows.map(r=><div key={r.id} style={{background:P.white,borderRadius:12,border:`1px solid ${P.border}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:14}}>
+              <div style={{width:38,height:38,borderRadius:"50%",background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <span style={{color:"#fff",fontWeight:700,fontSize:11}}>{r.initials||"TT"}</span>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>{r.title}</div>
+                <div style={{fontSize:11,color:P.textMuted}}>{r.date} · {r.speaker} · {r.type}{r.lang&&r.lang!=="Español"?` · ${r.lang}`:""}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                {r.rating&&<span style={{fontSize:13,fontWeight:600,color:P.accent}}>★ {r.rating}</span>}
+                <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+              </div>
+            </div>)}
+          </div>
+        </>}
+
+        {tab==="recomendados"&&<>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{fontSize:13,color:P.textMuted}}>{recs.length} talleres recomendados</div>
+            <Btn onClick={()=>setShowRecForm(!showRecForm)}>+ Agregar recomendación</Btn>
+          </div>
+          {showRecForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+            <SectionTitle>Nueva recomendación de taller</SectionTitle>
+            <Input label="Título del taller" value={recForm.title} onChange={v=>setRecForm({...recForm,title:v})} placeholder="ej. Gestión del estrés"/>
+            <Textarea label="Descripción" value={recForm.descripcion} onChange={v=>setRecForm({...recForm,descripcion:v})} placeholder="ej. Para equipos con alta demanda operativa" rows={2}/>
+            <Input label="Mes sugerido (ej. Jun 2026)" value={recForm.month} onChange={v=>setRecForm({...recForm,month:v})}/>
+            <div style={{display:"flex",gap:10}}><Btn onClick={saveRec}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowRecForm(false)}>Cancelar</Btn></div>
+          </Card>}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {recs.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin recomendaciones aún.</div></Card>}
+            {recs.map(r=><div key={r.id} style={{background:P.white,borderRadius:12,border:`1px solid ${P.border}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:14}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>{r.title}</div>
+                <div style={{fontSize:11,color:P.textMuted,marginBottom:4}}>{r.descripcion}</div>
+                {r.month&&<Badge text={r.month} bg={P.lighter} color={P.primary}/>}
+              </div>
+              <button onClick={()=>delRec(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+            </div>)}
+          </div>
+        </>}
+      </>}
+    </div>
+  );
+}
+
+// ── CONTENIDO ──────────────────────────────────────────────────────
+function ContenidoView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title:"", type:"Campana", date:"" });
+  const [uploading, setUploading] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("content").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRows(data||[]);
+  }
+  async function save() {
+    if(!form.title){ setMsg("Título obligatorio."); return; }
+    const today = new Date().toLocaleDateString("es-UY",{month:"short",year:"numeric"});
+    const {error} = await supabase.from("content").insert([{...form, company_id:companyId, date:form.date||today, is_new:true}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Contenido agregado."); setShowForm(false); load(); setForm({title:"",type:"Campana",date:""}); }
+  }
+  async function uploadFile(id, file) {
+    setUploading(u=>({...u,[id]:true}));
+    const ext = file.name.split('.').pop();
+    const path = `${companyId}/${id}.${ext}`;
+    const {error:upErr} = await supabase.storage.from("facturas").upload(path, file, {upsert:true});
+    if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data:{publicUrl}} = supabase.storage.from("facturas").getPublicUrl(path);
+    await supabase.from("content").update({file_url:publicUrl}).eq("id",id);
+    setUploading(u=>({...u,[id]:false}));
+    setMsg("Archivo subido.");
+    load();
+  }
+  async function del(id) { await supabase.from("content").delete().eq("id",id); load(); }
+
+  const TYPE_COLORS = {Campana:{bg:"#FFF0E6",tx:"#7A3800"},Guia:{bg:P.lighter,tx:P.primary},Protocolo:{bg:"#EEF4FF",tx:"#1A3A8B"}};
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{rows.length} piezas de contenido</div>
+          <Btn onClick={()=>setShowForm(!showForm)}>+ Agregar contenido</Btn>
+        </div>
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nuevo contenido</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Guía para líderes"/>
+            <Select label="Tipo" value={form.type} onChange={v=>setForm({...form,type:v})}
+              options={[{value:"Campana",label:"Campaña"},{value:"Guia",label:"Guía"},{value:"Protocolo",label:"Protocolo"}]}/>
+            <Input label="Fecha (ej. May 2026)" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+          </div>
+          <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        </Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin contenido aún.</div></Card>}
+          {rows.map(r=>{
+            const col=TYPE_COLORS[r.type]||{bg:P.lighter,tx:P.primary};
+            return <div key={r.id} style={{background:P.white,borderRadius:12,border:`1px solid ${P.border}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <Badge text={r.type==="Campana"?"Campaña":r.type==="Guia"?"Guía":r.type} bg={col.bg} color={col.tx}/>
+              <div style={{flex:1,minWidth:160}}>
+                <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>{r.title}</div>
+                <div style={{fontSize:11,color:P.textMuted}}>{r.date}</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  {uploading[r.id]?"Subiendo...":r.file_url?"✓ Archivo":"⬆ Subir archivo"}
+                  <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadFile(r.id,e.target.files[0])}/>
+                </label>
+                {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
+                {r.is_new&&<Badge text="Nuevo" bg={P.primary} color="#fff"/>}
+                <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+              </div>
+            </div>;
+          })}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function Placeholder({ label }) {
   return <div style={{padding:"60px 28px",textAlign:"center",color:P.textMuted}}>
     <div style={{fontSize:32,marginBottom:12}}>🔧</div>
@@ -683,7 +992,9 @@ export default function Admin() {
         {active==="sesiones"&&<SesionesView companies={companies}/>}
         {active==="recomendaciones"&&<RecomendacionesView companies={companies}/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
-        {["talleres","contenido","facturas"].includes(active)&&<Placeholder label={titles[active]}/>}
+        {active==="facturas"&&<FacturacionView companies={companies}/>}
+        {active==="talleres"&&<TalleresView companies={companies}/>}
+        {active==="contenido"&&<ContenidoView companies={companies}/>}
         {active==="usuarios"&&<UsuariosView companies={companies}/>}
       </div>
     </div>
