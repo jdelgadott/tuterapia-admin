@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "./supabase.js";
+import { supabase, supabaseAdmin } from "./supabase.js";
 
 const P = {
   primary:"#1A5C4A", light:"#2D9977", lighter:"#E6F4F0", bg:"#F5F7F6",
@@ -487,12 +487,19 @@ function UsuariosView({ companies }) {
   async function invite() {
     if(!form.email||!form.full_name){ setMsg("Email y nombre son obligatorios."); return; }
     setLoading(true); setMsg("");
+    // 1. Create in company_users
     const {error:e2, data:inserted} = await supabase.from("company_users").insert([{
       company_id:companyId, email:form.email, full_name:form.full_name, role:form.role, active:true
     }]).select().single();
     if(e2){ setMsg("Error: "+e2.message); setLoading(false); return; }
+    // 2. Save permissions
     await savePerms(inserted.id, formPerms);
-    setMsg(`Usuario ${form.full_name} agregado con los permisos seleccionados.`);
+    // 3. Send invitation email via Supabase Auth
+    const {error:invErr} = await supabaseAdmin.auth.admin.inviteUserByEmail(form.email, {
+      data: { company_id:companyId, full_name:form.full_name, role:form.role }
+    });
+    if(invErr) setMsg(`Usuario ${form.full_name} agregado. No se pudo enviar el mail de invitación: ${invErr.message}`);
+    else setMsg(`Invitación enviada a ${form.email}. ${form.full_name} recibirá un mail para elegir su contraseña.`);
     setShowForm(false);
     setForm({ email:"", full_name:"", role:"viewer" });
     setFormPerms({ individual:true, colectivo:true, estrategico:true, gestion:false });
