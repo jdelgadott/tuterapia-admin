@@ -445,6 +445,162 @@ function TrackingView({ companies }) {
   );
 }
 
+// ── USUARIOS EMPRESA ──────────────────────────────────────────────
+const MODULES_PERMS = [
+  { id:"individual",  label:"Colaboradores",            color:"#4a9356" },
+  { id:"colectivo",   label:"Cultura de Bienestar",     color:"#9070b8" },
+  { id:"estrategico", label:"Estrategia de Bienestar",  color:"#2a6aaa" },
+  { id:"gestion",     label:"Gestión",                  color:"#607870" },
+];
+
+function UsuariosView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [users, setUsers] = useState([]);
+  const [userPerms, setUserPerms] = useState({});
+  const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [form, setForm] = useState({ email:"", full_name:"", role:"viewer" });
+  const [formPerms, setFormPerms] = useState({ individual:true, colectivo:true, estrategico:true, gestion:false });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+
+  async function load() {
+    const {data:us} = await supabase.from("company_users").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setUsers(us||[]);
+    if(us?.length) {
+      const ids = us.map(u=>u.id);
+      const {data:ps} = await supabase.from("user_permissions").select("*").in("user_id", ids);
+      const permsMap = {};
+      (ps||[]).forEach(p=>{ if(!permsMap[p.user_id]) permsMap[p.user_id]={}; permsMap[p.user_id][p.section]=p.visible; });
+      setUserPerms(permsMap);
+    }
+  }
+
+  async function savePerms(userId, perms) {
+    await supabase.from("user_permissions").delete().eq("user_id", userId);
+    const rows = Object.entries(perms).map(([section,visible])=>({ user_id:userId, section, visible }));
+    if(rows.length) await supabase.from("user_permissions").insert(rows);
+  }
+
+  async function invite() {
+    if(!form.email||!form.full_name){ setMsg("Email y nombre son obligatorios."); return; }
+    setLoading(true); setMsg("");
+    const {error:e2, data:inserted} = await supabase.from("company_users").insert([{
+      company_id:companyId, email:form.email, full_name:form.full_name, role:form.role, active:true
+    }]).select().single();
+    if(e2){ setMsg("Error: "+e2.message); setLoading(false); return; }
+    await savePerms(inserted.id, formPerms);
+    setMsg(`Usuario ${form.full_name} agregado con los permisos seleccionados.`);
+    setShowForm(false);
+    setForm({ email:"", full_name:"", role:"viewer" });
+    setFormPerms({ individual:true, colectivo:true, estrategico:true, gestion:false });
+    setLoading(false);
+    load();
+  }
+
+  async function updatePerms(userId, newPerms) {
+    await savePerms(userId, newPerms);
+    setUserPerms(prev=>({...prev,[userId]:newPerms}));
+  }
+
+  async function toggleActive(user) {
+    await supabase.from("company_users").update({ active:!user.active }).eq("id",user.id);
+    load();
+  }
+
+  async function del(id) {
+    if(!confirm("¿Eliminar este usuario?")) return;
+    await supabase.from("user_permissions").delete().eq("user_id",id);
+    await supabase.from("company_users").delete().eq("id",id);
+    load();
+  }
+
+  const company = companies.find(c=>c.id===companyId);
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12,fontWeight:500}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{users.length} usuario{users.length!==1?"s":""} — {company?.name}</div>
+          <Btn onClick={()=>{ setShowForm(!showForm); setEditingUser(null); }}>+ Agregar usuario</Btn>
+        </div>
+
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nuevo usuario — {company?.name}</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Nombre completo" value={form.full_name} onChange={v=>setForm({...form,full_name:v})} placeholder="ej. Laura Martínez"/>
+            <Input label="Email corporativo" value={form.email} onChange={v=>setForm({...form,email:v})} placeholder={`ej. laura@${company?.domain||"empresa.com"}`} type="email"/>
+            <Select label="Rol" value={form.role} onChange={v=>setForm({...form,role:v})}
+              options={[{value:"viewer",label:"Viewer — solo lectura"},{value:"admin",label:"Admin — acceso total"}]}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.06em"}}>Módulos con acceso</label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {MODULES_PERMS.map(m=><label key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:formPerms[m.id]?P.white:P.gray50,border:`1px solid ${formPerms[m.id]?m.color+"66":P.border}`,borderRadius:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={!!formPerms[m.id]} onChange={e=>setFormPerms({...formPerms,[m.id]:e.target.checked})} style={{width:16,height:16,accentColor:m.color}}/>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:formPerms[m.id]?m.color:P.textMuted}}>{m.label}</div>
+                </div>
+              </label>)}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <Btn onClick={invite} disabled={loading}>{loading?"Guardando...":"Agregar usuario"}</Btn>
+            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+          </div>
+        </Card>}
+
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {users.length===0&&<Card><div style={{textAlign:"center",padding:"24px",color:P.textMuted,fontSize:13}}>Sin usuarios aún.</div></Card>}
+          {users.map(u=>{
+            const perms = userPerms[u.id]||{};
+            return <Card key={u.id}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+                <div style={{width:40,height:40,borderRadius:"50%",background:u.active?P.primary:P.border,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <span style={{color:"#fff",fontWeight:700,fontSize:12}}>{u.full_name?.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase()}</span>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:3,flexWrap:"wrap"}}>
+                    <div style={{fontSize:14,fontWeight:600,color:P.text}}>{u.full_name}</div>
+                    <Badge text={u.active?"Activo":"Inactivo"} bg={u.active?P.lighter:P.gray50} color={u.active?P.primary:P.textMuted}/>
+                    <Badge text={u.role==="admin"?"Admin":"Viewer"} bg={P.accentBg} color={P.accent}/>
+                  </div>
+                  <div style={{fontSize:12,color:P.textMuted,marginBottom:12}}>{u.email}</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:11,fontWeight:600,color:P.textMuted,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Acceso a módulos</div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {MODULES_PERMS.map(m=>{
+                        const hasAccess = perms[m.id]!==false && perms[m.id]!==undefined ? (Object.keys(perms).length===0 ? false : perms[m.id]) : false;
+                        return <label key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",background:hasAccess?P.white:P.gray50,border:`1px solid ${hasAccess?m.color+"66":P.border}`,borderRadius:20,cursor:"pointer"}}>
+                          <input type="checkbox" checked={!!hasAccess}
+                            onChange={e=>{ const np={...perms,[m.id]:e.target.checked}; updatePerms(u.id,np); }}
+                            style={{width:13,height:13,accentColor:m.color}}/>
+                          <span style={{fontSize:11,fontWeight:500,color:hasAccess?m.color:P.textMuted}}>{m.label}</span>
+                        </label>;
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8,flexShrink:0}}>
+                  <button onClick={()=>toggleActive(u)} style={{background:"none",border:`1px solid ${P.border}`,borderRadius:6,padding:"5px 10px",fontSize:11,cursor:"pointer",color:P.textMuted}}>
+                    {u.active?"Desactivar":"Activar"}
+                  </button>
+                  <button onClick={()=>del(u.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16,padding:"4px"}}>🗑</button>
+                </div>
+              </div>
+            </Card>;
+          })}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+
 function Placeholder({ label }) {
   return <div style={{padding:"60px 28px",textAlign:"center",color:P.textMuted}}>
     <div style={{fontSize:32,marginBottom:12}}>🔧</div>
@@ -492,7 +648,8 @@ export default function Admin() {
         {active==="sesiones"&&<SesionesView companies={companies}/>}
         {active==="recomendaciones"&&<RecomendacionesView companies={companies}/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
-        {["talleres","contenido","facturas","usuarios"].includes(active)&&<Placeholder label={titles[active]}/>}
+        {["talleres","contenido","facturas"].includes(active)&&<Placeholder label={titles[active]}/>}
+        {active==="usuarios"&&<UsuariosView companies={companies}/>}
       </div>
     </div>
   );
