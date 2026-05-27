@@ -70,6 +70,8 @@ function Sidebar({ active, setActive, adminName, onLogout }) {
     { id:"facturas",        icon:"💳", label:"Facturación" },
     { id:"recomendaciones", icon:"💡", label:"Recomendaciones" },
     { id:"motivos",        icon:"🧠", label:"Motivos consulta" },
+    { id:"informes",       icon:"📋", label:"Informes de uso" },
+    { id:"encuestas",      icon:"📝", label:"Encuestas" },
     { id:"usuarios",        icon:"👤", label:"Usuarios empresa" },
     { id:"tracking",        icon:"📈", label:"Tracking" },
   ];
@@ -663,11 +665,12 @@ function FacturacionView({ companies }) {
 
   async function uploadPDF(id, file) {
     setUploading(u=>({...u,[id]:true}));
-    const path = `${companyId}/${id}.pdf`;
-    const {error:upErr} = await supabase.storage.from("facturas").upload(path, file, {upsert:true});
-    if(upErr){ setMsg("Error subiendo PDF: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
-    const {data:{publicUrl}} = supabase.storage.from("facturas").getPublicUrl(path);
-    await supabase.from("billing").update({file_url:publicUrl}).eq("id",id);
+    const ext = file.name.split('.').pop();
+    const path = `${companyId}/${id}.${ext}`;
+    const {error:upErr} = await supabase.storage.from("facturas").upload(path, file, {upsert:true,contentType:file.type});
+    if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data} = supabase.storage.from("facturas").getPublicUrl(path);
+    await supabase.from("billing").update({file_url:data.publicUrl}).eq("id",id);
     setUploading(u=>({...u,[id]:false}));
     setMsg("PDF subido correctamente.");
     load();
@@ -889,10 +892,10 @@ function ContenidoView({ companies }) {
     setUploading(u=>({...u,[id]:true}));
     const ext = file.name.split('.').pop();
     const path = `${companyId}/${id}.${ext}`;
-    const {error:upErr} = await supabase.storage.from("facturas").upload(path, file, {upsert:true});
+    const {error:upErr} = await supabase.storage.from("contenido").upload(path, file, {upsert:true,contentType:file.type});
     if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
-    const {data:{publicUrl}} = supabase.storage.from("facturas").getPublicUrl(path);
-    await supabase.from("content").update({file_url:publicUrl}).eq("id",id);
+    const {data} = supabase.storage.from("contenido").getPublicUrl(path);
+    await supabase.from("content").update({file_url:data.publicUrl}).eq("id",id);
     setUploading(u=>({...u,[id]:false}));
     setMsg("Archivo subido.");
     load();
@@ -1022,6 +1025,150 @@ function MotivosView({ companies }) {
   );
 }
 
+// ── INFORMES ────────────────────────────────────────────────────────
+function InformesView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title:"", period:"" });
+  const [uploading, setUploading] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("informes").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRows(data||[]);
+  }
+  async function save() {
+    if(!form.title){ setMsg("Título obligatorio."); return; }
+    const {error} = await supabase.from("informes").insert([{...form, company_id:companyId}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Informe creado."); setShowForm(false); load(); setForm({title:"",period:""}); }
+  }
+  async function uploadFile(id, file) {
+    setUploading(u=>({...u,[id]:true}));
+    const ext = file.name.split('.').pop();
+    const path = `${companyId}/${id}.${ext}`;
+    const {error:upErr} = await supabase.storage.from("informes").upload(path, file, {upsert:true,contentType:file.type});
+    if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data} = supabase.storage.from("informes").getPublicUrl(path);
+    await supabase.from("informes").update({file_url:data.publicUrl}).eq("id",id);
+    setUploading(u=>({...u,[id]:false})); setMsg("Informe subido."); load();
+  }
+  async function del(id) { await supabase.from("informes").delete().eq("id",id); load(); }
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{rows.length} informes</div>
+          <Btn onClick={()=>setShowForm(!showForm)}>+ Nuevo informe</Btn>
+        </div>
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nuevo informe de uso</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Informe Q1 2026"/>
+            <Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="ej. Ene–Mar 2026"/>
+          </div>
+          <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        </Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin informes aún.</div></Card>}
+          {rows.map(r=><Card key={r.id}>
+            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:3}}>{r.title}</div>
+                {r.period&&<div style={{fontSize:12,color:P.textMuted}}>{r.period}</div>}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                  {uploading[r.id]?"Subiendo...":r.file_url?"✓ Archivo":"⬆ Subir PDF"}
+                  <input type="file" accept=".pdf,.xlsx,.docx" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadFile(r.id,e.target.files[0])}/>
+                </label>
+                {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
+                <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+              </div>
+            </div>
+          </Card>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ── ENCUESTAS ARCHIVOS ─────────────────────────────────────────────
+function EncuestasView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title:"", descripcion:"" });
+  const [uploading, setUploading] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    setRows(data||[]);
+  }
+  async function save() {
+    if(!form.title){ setMsg("Título obligatorio."); return; }
+    const {error} = await supabase.from("encuestas_archivos").insert([{...form, company_id:companyId}]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Encuesta creada."); setShowForm(false); load(); setForm({title:"",descripcion:""}); }
+  }
+  async function uploadFile(id, file) {
+    setUploading(u=>({...u,[id]:true}));
+    const ext = file.name.split('.').pop();
+    const path = `${companyId}/${id}.${ext}`;
+    const {error:upErr} = await supabase.storage.from("informes").upload(path, file, {upsert:true,contentType:file.type});
+    if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data} = supabase.storage.from("informes").getPublicUrl(path);
+    await supabase.from("encuestas_archivos").update({file_url:data.publicUrl}).eq("id",id);
+    setUploading(u=>({...u,[id]:false})); setMsg("Archivo subido."); load();
+  }
+  async function del(id) { await supabase.from("encuestas_archivos").delete().eq("id",id); load(); }
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{rows.length} encuestas</div>
+          <Btn onClick={()=>setShowForm(!showForm)}>+ Nueva encuesta</Btn>
+        </div>
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nueva encuesta descargable</SectionTitle>
+          <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Encuesta de Índice Tu Terapia Q2 2026"/>
+          <Input label="Descripción" value={form.descripcion} onChange={v=>setForm({...form,descripcion:v})} placeholder="ej. 22 preguntas · 6 dimensiones"/>
+          <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        </Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin encuestas aún.</div></Card>}
+          {rows.map(r=><Card key={r.id}>
+            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:3}}>{r.title}</div>
+                {r.descripcion&&<div style={{fontSize:12,color:P.textMuted}}>{r.descripcion}</div>}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                  {uploading[r.id]?"Subiendo...":r.file_url?"✓ Archivo":"⬆ Subir archivo"}
+                  <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadFile(r.id,e.target.files[0])}/>
+                </label>
+                {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
+                <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+              </div>
+            </div>
+          </Card>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function Placeholder({ label }) {
   return <div style={{padding:"60px 28px",textAlign:"center",color:P.textMuted}}>
     <div style={{fontSize:32,marginBottom:12}}>🔧</div>
@@ -1057,7 +1204,7 @@ export default function Admin() {
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:P.bg,fontFamily:"system-ui,sans-serif",color:P.textMuted,fontSize:13}}>Cargando...</div>;
   if(!user) return <LoginView onLogin={(u,ad)=>{ setUser(u); setAdminData(ad); }}/>;
 
-  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",motivos:"Motivos de consulta",usuarios:"Usuarios empresa",tracking:"Tracking"};
+  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",motivos:"Motivos de consulta", informes:"Informes de uso", encuestas:"Encuestas",usuarios:"Usuarios empresa",tracking:"Tracking"};
 
   return (
     <div style={{display:"flex",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:P.bg,color:P.text}}>
@@ -1070,6 +1217,8 @@ export default function Admin() {
         {active==="recomendaciones"&&<RecomendacionesView companies={companies}/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
         {active==="motivos"&&<MotivosView companies={companies}/>}
+        {active==="informes"&&<InformesView companies={companies}/>}
+        {active==="encuestas"&&<EncuestasView companies={companies}/>}
         {active==="facturas"&&<FacturacionView companies={companies}/>}
         {active==="talleres"&&<TalleresView companies={companies}/>}
         {active==="contenido"&&<ContenidoView companies={companies}/>}
