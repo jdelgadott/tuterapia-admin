@@ -72,6 +72,8 @@ function Sidebar({ active, setActive, adminName, onLogout }) {
     { id:"motivos",        icon:"🧠", label:"Motivos consulta" },
     { id:"informes",       icon:"📋", label:"Informes de uso" },
     { id:"encuestas",      icon:"📝", label:"Encuestas" },
+    { id:"talleristas",    icon:"🎤", label:"Talleristas" },
+    { id:"headers",        icon:"✏️",  label:"Frases headers" },
     { id:"usuarios",        icon:"👤", label:"Usuarios empresa" },
     { id:"tracking",        icon:"📈", label:"Tracking" },
   ];
@@ -1169,6 +1171,159 @@ function EncuestasView({ companies }) {
   );
 }
 
+// ── TALLERISTAS ────────────────────────────────────────────────────
+function TalleristasView({ companies }) {
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name:"", initials:"" });
+  const [uploading, setUploading] = useState({});
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ load(); },[]);
+  async function load() {
+    const {data} = await supabase.from("talleristas").select("*").order("name");
+    setRows(data||[]);
+  }
+  async function save() {
+    if(!form.name){ setMsg("Nombre obligatorio."); return; }
+    const {error} = await supabase.from("talleristas").insert([form]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Tallerista creado."); setShowForm(false); load(); setForm({name:"",initials:""}); }
+  }
+  async function uploadPhoto(id, file) {
+    setUploading(u=>({...u,[id]:true}));
+    const ext = file.name.split('.').pop();
+    const path = `talleristas/${id}.${ext}`;
+    const {error:upErr} = await supabase.storage.from("contenido").upload(path, file, {upsert:true,contentType:file.type});
+    if(upErr){ setMsg("Error: "+upErr.message); setUploading(u=>({...u,[id]:false})); return; }
+    const {data} = supabase.storage.from("contenido").getPublicUrl(path);
+    await supabase.from("talleristas").update({photo_url:data.publicUrl}).eq("id",id);
+    setUploading(u=>({...u,[id]:false})); setMsg("Foto subida."); load();
+  }
+  async function del(id) { await supabase.from("talleristas").delete().eq("id",id); load(); }
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+        <div style={{fontSize:13,color:P.textMuted}}>{rows.length} talleristas registrados</div>
+        <Btn onClick={()=>setShowForm(!showForm)}>+ Agregar tallerista</Btn>
+      </div>
+      {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+        <SectionTitle>Nuevo tallerista</SectionTitle>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Nombre completo" value={form.name} onChange={v=>setForm({...form,name:v})} placeholder="ej. Juan Ignacio Delgado"/>
+          <Input label="Iniciales" value={form.initials} onChange={v=>setForm({...form,initials:v})} placeholder="ej. JD"/>
+        </div>
+        <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      </Card>}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin talleristas aún.</div></Card>}
+        {rows.map(r=><Card key={r.id}>
+          <div style={{display:"flex",alignItems:"center",gap:16}}>
+            {r.photo_url
+              ? <img src={r.photo_url} alt={r.name} style={{width:52,height:52,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
+              : <div style={{width:52,height:52,borderRadius:"50%",background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <span style={{color:"#fff",fontWeight:700,fontSize:14}}>{r.initials||r.name?.slice(0,2).toUpperCase()}</span>
+                </div>
+            }
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:600,color:P.text,marginBottom:2}}>{r.name}</div>
+              <div style={{fontSize:12,color:P.textMuted}}>Iniciales: {r.initials||"—"}</div>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                {uploading[r.id]?"Subiendo...":r.photo_url?"✓ Cambiar foto":"⬆ Subir foto"}
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadPhoto(r.id,e.target.files[0])}/>
+              </label>
+              <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+            </div>
+          </div>
+        </Card>)}
+      </div>
+    </div>
+  );
+}
+
+// ── FRASES HEADERS ─────────────────────────────────────────────────
+const MODULES_HEADERS = [
+  { module:"individual", subs:["Sesiones","Adherencia","Distribución de cupones"], label:"Colaboradores" },
+  { module:"colectivo",  subs:["Talleres","Contenido"], label:"Cultura de Bienestar" },
+  { module:"estrategico",subs:["Bienestar del equipo","Consultoría Tu Terapia","Recursos y reportes"], label:"Estrategia de Bienestar" },
+  { module:"gestion",    subs:["Facturación","Plan activo","Equipo TT"], label:"Gestión" },
+];
+
+function HeadersView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ title:"", subtitle:"" });
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("header_texts").select("*").eq("company_id",companyId);
+    setRows(data||[]);
+  }
+  function getRow(module, sub) {
+    return rows.find(r=>r.module===module&&r.sub===sub);
+  }
+  async function save(module, sub) {
+    const existing = getRow(module, sub);
+    if(existing) {
+      await supabase.from("header_texts").update({title:form.title,subtitle:form.subtitle}).eq("id",existing.id);
+    } else {
+      await supabase.from("header_texts").insert([{company_id:companyId,module,sub,title:form.title,subtitle:form.subtitle}]);
+    }
+    setEditing(null); setMsg("Guardado."); load();
+  }
+  async function del(id) { await supabase.from("header_texts").delete().eq("id",id); load(); }
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:P.lighter,color:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        <div style={{fontSize:12,color:P.textMuted,marginBottom:16,lineHeight:1.6}}>
+          Editá el título y subtítulo de cada pestaña. Si dejás vacío, el dashboard muestra el texto por defecto.
+        </div>
+        {MODULES_HEADERS.map(mod=><Card key={mod.module} style={{marginBottom:12}}>
+          <SectionTitle>{mod.label}</SectionTitle>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {mod.subs.map(sub=>{
+              const row = getRow(mod.module, sub);
+              const isEditing = editing===`${mod.module}-${sub}`;
+              return <div key={sub} style={{padding:"10px 14px",background:P.gray50,borderRadius:8,border:`1px solid ${P.border}`}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isEditing?10:0}}>
+                  <div>
+                    <span style={{fontSize:12,fontWeight:600,color:P.text}}>{sub}</span>
+                    {row?.title&&<span style={{fontSize:11,color:P.textMuted,marginLeft:8}}>"{row.title}"</span>}
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{ setEditing(`${mod.module}-${sub}`); setForm({title:row?.title||"",subtitle:row?.subtitle||""}); }}
+                      style={{background:"none",border:`1px solid ${P.border}`,borderRadius:6,padding:"3px 10px",fontSize:11,cursor:"pointer",color:P.primary}}>
+                      {row?.title?"Editar":"+ Agregar"}
+                    </button>
+                    {row&&<button onClick={()=>del(row.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:14}}>🗑</button>}
+                  </div>
+                </div>
+                {isEditing&&<div>
+                  <Input label="Título principal" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Tu equipo avanza hacia el bienestar"/>
+                  <Input label="Subtítulo" value={form.subtitle} onChange={v=>setForm({...form,subtitle:v})} placeholder="ej. 2.573 sesiones realizadas este año"/>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn small onClick={()=>save(mod.module,sub)}>Guardar</Btn>
+                    <Btn small variant="secondary" onClick={()=>setEditing(null)}>Cancelar</Btn>
+                  </div>
+                </div>}
+              </div>;
+            })}
+          </div>
+        </Card>)}
+      </>}
+    </div>
+  );
+}
+
 function Placeholder({ label }) {
   return <div style={{padding:"60px 28px",textAlign:"center",color:P.textMuted}}>
     <div style={{fontSize:32,marginBottom:12}}>🔧</div>
@@ -1204,7 +1359,7 @@ export default function Admin() {
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:P.bg,fontFamily:"system-ui,sans-serif",color:P.textMuted,fontSize:13}}>Cargando...</div>;
   if(!user) return <LoginView onLogin={(u,ad)=>{ setUser(u); setAdminData(ad); }}/>;
 
-  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",motivos:"Motivos de consulta", informes:"Informes de uso", encuestas:"Encuestas",usuarios:"Usuarios empresa",tracking:"Tracking"};
+  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",motivos:"Motivos de consulta", informes:"Informes de uso", encuestas:"Encuestas", talleristas:"Talleristas", headers:"Frases de headers",usuarios:"Usuarios empresa",tracking:"Tracking"};
 
   return (
     <div style={{display:"flex",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:P.bg,color:P.text}}>
@@ -1219,6 +1374,8 @@ export default function Admin() {
         {active==="motivos"&&<MotivosView companies={companies}/>}
         {active==="informes"&&<InformesView companies={companies}/>}
         {active==="encuestas"&&<EncuestasView companies={companies}/>}
+        {active==="talleristas"&&<TalleristasView companies={companies}/>}
+        {active==="headers"&&<HeadersView companies={companies}/>}
         {active==="facturas"&&<FacturacionView companies={companies}/>}
         {active==="talleres"&&<TalleresView companies={companies}/>}
         {active==="contenido"&&<ContenidoView companies={companies}/>}
