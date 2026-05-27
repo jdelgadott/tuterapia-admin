@@ -317,7 +317,7 @@ function SesionesView({ companies }) {
   const [companyId, setCompanyId] = useState("");
   const [rows, setRows] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ month:"", year:new Date().getFullYear(), canjeadas:0, realizadas:0, nuevos:0, c1:0, c2:0, c3:0, c4:0, c5:0, partial:false });
+  const [form, setForm] = useState({ month:"", year:new Date().getFullYear(), canjeadas:0, realizadas:0, nuevos:0, total_historico:0, c1:0, c2:0, c3:0, c4:0, c5:0, partial:false });
   const [msg, setMsg] = useState("");
   useEffect(()=>{ if(companyId) load(); },[companyId]);
   async function load() { const {data}=await supabase.from("sessions_data").select("*").eq("company_id",companyId).order("year").order("month"); setRows(data||[]); }
@@ -350,6 +350,7 @@ function SesionesView({ companies }) {
             <Input label="Cup. 3" value={form.c3} onChange={v=>f("c3",v)} type="number"/>
             <Input label="Cup. 4" value={form.c4} onChange={v=>f("c4",v)} type="number"/>
             <Input label="Cup. 5" value={form.c5} onChange={v=>f("c5",v)} type="number"/>
+            <Input label="Total histórico pacientes" value={form.total_historico} onChange={v=>f("total_historico",v)} type="number"/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
             <input type="checkbox" checked={form.partial} onChange={e=>setForm({...form,partial:e.target.checked})} id="partial"/>
