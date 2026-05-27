@@ -660,9 +660,15 @@ function FacturacionView({ companies }) {
 
   async function save() {
     if(!form.period||!form.amount){ setMsg("Período y monto son obligatorios."); return; }
-    const {error} = await supabase.from("billing").insert([{...form, company_id:companyId, amount:parseInt(form.amount)}]);
-    if(error) setMsg("Error: "+error.message);
-    else { setMsg("Factura creada."); setShowForm(false); load(); setForm({period:"",amount:"",status:"pendiente",invoice:""}); }
+    const {data:inserted, error} = await supabase.from("billing").insert([{period:form.period,amount:parseInt(form.amount),status:form.status,invoice:form.invoice,company_id:companyId}]).select().single();
+    if(error){ setMsg("Error: "+error.message); return; }
+    if(form._file) {
+      const ext = form._file.name.split('.').pop();
+      const path = `${companyId}/${inserted.id}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("facturas").upload(path, form._file, {upsert:true,contentType:form._file.type});
+      if(!upErr){ const {data} = supabase.storage.from("facturas").getPublicUrl(path); await supabase.from("billing").update({file_url:data.publicUrl}).eq("id",inserted.id); }
+    }
+    setMsg("Factura creada."); setShowForm(false); load(); setForm({period:"",amount:"",status:"pendiente",invoice:""});
   }
 
   async function uploadPDF(id, file) {
@@ -724,6 +730,13 @@ function FacturacionView({ companies }) {
             <Input label="N° factura" value={form.invoice} onChange={v=>setForm({...form,invoice:v})} placeholder="ej. TT-2026-051"/>
             <Select label="Estado" value={form.status} onChange={v=>setForm({...form,status:v})}
               options={[{value:"pendiente",label:"Pendiente"},{value:"pagado",label:"Pagado"}]}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>PDF de factura (opcional)</label>
+            <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📎 {form._file?form._file.name:"Seleccionar PDF"}
+              <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
+            </label>
           </div>
           <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
         </Card>}
@@ -886,9 +899,15 @@ function ContenidoView({ companies }) {
   async function save() {
     if(!form.title){ setMsg("Título obligatorio."); return; }
     const today = new Date().toLocaleDateString("es-UY",{month:"short",year:"numeric"});
-    const {error} = await supabase.from("content").insert([{...form, company_id:companyId, date:form.date||today, is_new:true}]);
-    if(error) setMsg("Error: "+error.message);
-    else { setMsg("Contenido agregado."); setShowForm(false); load(); setForm({title:"",type:"Campana",date:""}); }
+    const {data:inserted, error} = await supabase.from("content").insert([{title:form.title,type:form.type,date:form.date||today,company_id:companyId,is_new:true}]).select().single();
+    if(error){ setMsg("Error: "+error.message); return; }
+    if(form._file) {
+      const ext = form._file.name.split('.').pop();
+      const path = `${companyId}/${inserted.id}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("contenido").upload(path, form._file, {upsert:true,contentType:form._file.type});
+      if(!upErr){ const {data} = supabase.storage.from("contenido").getPublicUrl(path); await supabase.from("content").update({file_url:data.publicUrl}).eq("id",inserted.id); }
+    }
+    setMsg("Contenido agregado."); setShowForm(false); load(); setForm({title:"",type:"Campana",date:""});
   }
   async function uploadFile(id, file) {
     setUploading(u=>({...u,[id]:true}));
@@ -918,10 +937,17 @@ function ContenidoView({ companies }) {
         {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
           <SectionTitle>Nuevo contenido</SectionTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Guía para líderes"/>
+            <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Guia para lideres"/>
             <Select label="Tipo" value={form.type} onChange={v=>setForm({...form,type:v})}
               options={[{value:"Campana",label:"Campaña"},{value:"Guia",label:"Guía"},{value:"Protocolo",label:"Protocolo"}]}/>
             <Input label="Fecha (ej. May 2026)" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Archivo</label>
+            <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📎 {form._file?form._file.name:"Seleccionar archivo"}
+              <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
+            </label>
           </div>
           <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
         </Card>}
@@ -1043,9 +1069,15 @@ function InformesView({ companies }) {
   }
   async function save() {
     if(!form.title){ setMsg("Título obligatorio."); return; }
-    const {error} = await supabase.from("informes").insert([{...form, company_id:companyId}]);
-    if(error) setMsg("Error: "+error.message);
-    else { setMsg("Informe creado."); setShowForm(false); load(); setForm({title:"",period:""}); }
+    const {data:inserted, error} = await supabase.from("informes").insert([{title:form.title,period:form.period,company_id:companyId}]).select().single();
+    if(error){ setMsg("Error: "+error.message); return; }
+    if(form._file) {
+      const ext = form._file.name.split('.').pop();
+      const path = `${companyId}/${inserted.id}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("informes").upload(path, form._file, {upsert:true,contentType:form._file.type});
+      if(!upErr){ const {data} = supabase.storage.from("informes").getPublicUrl(path); await supabase.from("informes").update({file_url:data.publicUrl}).eq("id",inserted.id); }
+    }
+    setMsg("Informe creado."); setShowForm(false); load(); setForm({title:"",period:""});
   }
   async function uploadFile(id, file) {
     setUploading(u=>({...u,[id]:true}));
@@ -1073,6 +1105,13 @@ function InformesView({ companies }) {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Informe Q1 2026"/>
             <Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="ej. Ene–Mar 2026"/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Archivo (PDF)</label>
+            <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📎 {form._file?form._file.name:"Seleccionar archivo"}
+              <input type="file" accept=".pdf,.xlsx,.docx" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
+            </label>
           </div>
           <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
         </Card>}
@@ -1116,9 +1155,15 @@ function EncuestasView({ companies }) {
   }
   async function save() {
     if(!form.title){ setMsg("Título obligatorio."); return; }
-    const {error} = await supabase.from("encuestas_archivos").insert([{...form, company_id:companyId}]);
-    if(error) setMsg("Error: "+error.message);
-    else { setMsg("Encuesta creada."); setShowForm(false); load(); setForm({title:"",descripcion:""}); }
+    const {data:inserted, error} = await supabase.from("encuestas_archivos").insert([{title:form.title,descripcion:form.descripcion,company_id:companyId}]).select().single();
+    if(error){ setMsg("Error: "+error.message); return; }
+    if(form._file) {
+      const ext = form._file.name.split('.').pop();
+      const path = `${companyId}/${inserted.id}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("informes").upload(path, form._file, {upsert:true,contentType:form._file.type});
+      if(!upErr){ const {data} = supabase.storage.from("informes").getPublicUrl(path); await supabase.from("encuestas_archivos").update({file_url:data.publicUrl}).eq("id",inserted.id); }
+    }
+    setMsg("Encuesta creada."); setShowForm(false); load(); setForm({title:"",descripcion:""});
   }
   async function uploadFile(id, file) {
     setUploading(u=>({...u,[id]:true}));
@@ -1143,8 +1188,15 @@ function EncuestasView({ companies }) {
         </div>
         {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
           <SectionTitle>Nueva encuesta descargable</SectionTitle>
-          <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Encuesta de Índice Tu Terapia Q2 2026"/>
-          <Input label="Descripción" value={form.descripcion} onChange={v=>setForm({...form,descripcion:v})} placeholder="ej. 22 preguntas · 6 dimensiones"/>
+          <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Encuesta de Indice Tu Terapia Q2 2026"/>
+          <Input label="Descripción" value={form.descripcion} onChange={v=>setForm({...form,descripcion:v})} placeholder="ej. 22 preguntas - 6 dimensiones"/>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Archivo</label>
+            <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📎 {form._file?form._file.name:"Seleccionar archivo"}
+              <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
+            </label>
+          </div>
           <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
         </Card>}
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1186,9 +1238,15 @@ function TalleristasView({ companies }) {
   }
   async function save() {
     if(!form.name){ setMsg("Nombre obligatorio."); return; }
-    const {error} = await supabase.from("talleristas").insert([form]);
-    if(error) setMsg("Error: "+error.message);
-    else { setMsg("Tallerista creado."); setShowForm(false); load(); setForm({name:"",initials:""}); }
+    const {data:inserted, error} = await supabase.from("talleristas").insert([{name:form.name,initials:form.initials}]).select().single();
+    if(error){ setMsg("Error: "+error.message); return; }
+    if(form._photoFile) {
+      const ext = form._photoFile.name.split('.').pop();
+      const path = `talleristas/${inserted.id}.${ext}`;
+      const {error:upErr} = await supabase.storage.from("contenido").upload(path, form._photoFile, {upsert:true,contentType:form._photoFile.type});
+      if(!upErr){ const {data} = supabase.storage.from("contenido").getPublicUrl(path); await supabase.from("talleristas").update({photo_url:data.publicUrl}).eq("id",inserted.id); }
+    }
+    setMsg("Tallerista creado."); setShowForm(false); load(); setForm({name:"",initials:""});
   }
   async function uploadPhoto(id, file) {
     setUploading(u=>({...u,[id]:true}));
@@ -1214,6 +1272,13 @@ function TalleristasView({ companies }) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Input label="Nombre completo" value={form.name} onChange={v=>setForm({...form,name:v})} placeholder="ej. Juan Ignacio Delgado"/>
           <Input label="Iniciales" value={form.initials} onChange={v=>setForm({...form,initials:v})} placeholder="ej. JD"/>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>Foto</label>
+          <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            📷 {form._photoFile?form._photoFile.name:"Seleccionar foto"}
+            <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_photoFile:e.target.files[0]})}/>
+          </label>
         </div>
         <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
       </Card>}
