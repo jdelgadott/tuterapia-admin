@@ -69,6 +69,7 @@ function Sidebar({ active, setActive, adminName, onLogout }) {
     { id:"contenido",       icon:"📁", label:"Contenido" },
     { id:"facturas",        icon:"💳", label:"Facturación" },
     { id:"recomendaciones", icon:"💡", label:"Recomendaciones" },
+    { id:"motivos",        icon:"🧠", label:"Motivos consulta" },
     { id:"usuarios",        icon:"👤", label:"Usuarios empresa" },
     { id:"tracking",        icon:"📈", label:"Tracking" },
   ];
@@ -946,6 +947,81 @@ function ContenidoView({ companies }) {
   );
 }
 
+// ── MOTIVOS DE CONSULTA ────────────────────────────────────────────
+function MotivosView({ companies }) {
+  const [companyId, setCompanyId] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ reason:"", percentage:"", count:"", period:"" });
+  const [msg, setMsg] = useState("");
+
+  useEffect(()=>{ if(companyId) load(); },[companyId]);
+  async function load() {
+    const {data} = await supabase.from("consultation_reasons").select("*").eq("company_id",companyId).order("percentage",{ascending:false});
+    setRows(data||[]);
+  }
+  async function save() {
+    if(!form.reason){ setMsg("El motivo es obligatorio."); return; }
+    const {error} = await supabase.from("consultation_reasons").insert([{
+      ...form, company_id:companyId,
+      percentage:parseFloat(form.percentage)||null,
+      count:parseInt(form.count)||null
+    }]);
+    if(error) setMsg("Error: "+error.message);
+    else { setMsg("Motivo guardado."); setShowForm(false); load(); setForm({reason:"",percentage:"",count:"",period:""}); }
+  }
+  async function del(id) { await supabase.from("consultation_reasons").delete().eq("id",id); load(); }
+
+  const top = rows[0];
+
+  return (
+    <div style={{padding:"24px 28px"}}>
+      <CompanySelect companies={companies} value={companyId} onChange={v=>{ setCompanyId(v); setMsg(""); }}/>
+      {msg&&<div style={{padding:"10px 14px",background:msg.startsWith("Error")?P.redBg:P.lighter,color:msg.startsWith("Error")?P.red:P.primary,borderRadius:8,marginBottom:16,fontSize:12}}>{msg}</div>}
+      {companyId&&<>
+        {top&&<div style={{background:P.lighter,borderRadius:12,border:`1px solid ${P.primary+"44"}`,padding:"14px 18px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:20}}>🔝</span>
+          <div>
+            <div style={{fontSize:11,color:P.textMuted,marginBottom:2}}>Motivo más presente</div>
+            <div style={{fontSize:14,fontWeight:700,color:P.primary}}>{top.reason} — {top.percentage!=null?`${top.percentage}%`:top.count!=null?`${top.count} casos`:"—"}</div>
+          </div>
+        </div>}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontSize:13,color:P.textMuted}}>{rows.length} motivos cargados</div>
+          <Btn onClick={()=>setShowForm(!showForm)}>+ Agregar motivo</Btn>
+        </div>
+        {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+          <SectionTitle>Nuevo motivo de consulta</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Motivo" value={form.reason} onChange={v=>setForm({...form,reason:v})} placeholder="ej. Ansiedad"/>
+            <Input label="Porcentaje (%)" value={form.percentage} onChange={v=>setForm({...form,percentage:v})} type="number" placeholder="ej. 34.5"/>
+            <Input label="Cantidad (opcional)" value={form.count} onChange={v=>setForm({...form,count:v})} type="number"/>
+            <Input label="Período (ej. Q1 2026)" value={form.period} onChange={v=>setForm({...form,period:v})}/>
+          </div>
+          <div style={{display:"flex",gap:10}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        </Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin motivos cargados aún.</div></Card>}
+          {rows.map((r,i)=><div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:i===0?P.primary:P.lighter,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <span style={{fontSize:11,fontWeight:700,color:i===0?"#fff":P.primary}}>#{i+1}</span>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.reason}</div>
+              {r.period&&<div style={{fontSize:11,color:P.textMuted}}>{r.period}</div>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              {r.percentage!=null&&<span style={{fontSize:14,fontWeight:700,color:P.primary}}>{r.percentage}%</span>}
+              {r.count!=null&&<span style={{fontSize:12,color:P.textMuted}}>{r.count} casos</span>}
+              <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+            </div>
+          </div>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function Placeholder({ label }) {
   return <div style={{padding:"60px 28px",textAlign:"center",color:P.textMuted}}>
     <div style={{fontSize:32,marginBottom:12}}>🔧</div>
@@ -981,7 +1057,7 @@ export default function Admin() {
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:P.bg,fontFamily:"system-ui,sans-serif",color:P.textMuted,fontSize:13}}>Cargando...</div>;
   if(!user) return <LoginView onLogin={(u,ad)=>{ setUser(u); setAdminData(ad); }}/>;
 
-  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",usuarios:"Usuarios empresa",tracking:"Tracking"};
+  const titles={dashboard:"Dashboard",empresas:"Empresas",sesiones:"Sesiones",talleres:"Talleres",contenido:"Contenido",facturas:"Facturación",recomendaciones:"Recomendaciones",motivos:"Motivos de consulta",usuarios:"Usuarios empresa",tracking:"Tracking"};
 
   return (
     <div style={{display:"flex",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:P.bg,color:P.text}}>
@@ -993,6 +1069,7 @@ export default function Admin() {
         {active==="sesiones"&&<SesionesView companies={companies}/>}
         {active==="recomendaciones"&&<RecomendacionesView companies={companies}/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
+        {active==="motivos"&&<MotivosView companies={companies}/>}
         {active==="facturas"&&<FacturacionView companies={companies}/>}
         {active==="talleres"&&<TalleresView companies={companies}/>}
         {active==="contenido"&&<ContenidoView companies={companies}/>}
