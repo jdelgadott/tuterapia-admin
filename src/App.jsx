@@ -430,8 +430,15 @@ function UsuariosTab({ company }) {
     const {error:e2,data:inserted}=await supabase.from("company_users").insert([{company_id:company.id,email:form.email,full_name:form.full_name,role:form.role,active:true}]).select().single();
     if(e2){setMsg("Error: "+e2.message);setLoading(false);return;}
     await savePerms(inserted.id,formPerms);
-    const {error:invErr}=await supabaseAdmin.auth.admin.inviteUserByEmail(form.email,{data:{company_id:company.id,full_name:form.full_name,role:form.role}});
-    if(invErr) setMsg(`${form.full_name} agregado. Mail de invitación: ${invErr.message}`);
+    // Call Edge Function to send invite
+    const {data:{session}}=await supabase.auth.getSession();
+    const res=await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${session?.access_token}`},
+      body:JSON.stringify({email:form.email,company_id:company.id,full_name:form.full_name,role:form.role})
+    });
+    const result=await res.json();
+    if(result.error) setMsg(`${form.full_name} agregado. Mail: ${result.error}`);
     else setMsg(`Invitación enviada a ${form.email}.`);
     setShowForm(false);setForm({email:"",full_name:"",role:"viewer"});setFormPerms({individual:true,colectivo:true,estrategico:true,gestion:false});
     setLoading(false);load();
