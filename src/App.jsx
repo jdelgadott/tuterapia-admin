@@ -432,7 +432,7 @@ function UsuariosTab({ company }) {
     await savePerms(inserted.id,formPerms);
     // Call Edge Function to send invite
     const {data:{session}}=await supabase.auth.getSession();
-    const res=await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,{
+    const res=await fetch("https://cdzvjueschflpkxlozby.supabase.co/functions/v1/invite-user",{
       method:"POST",
       headers:{"Content-Type":"application/json","Authorization":`Bearer ${session?.access_token}`},
       body:JSON.stringify({email:form.email,company_id:company.id,full_name:form.full_name,role:form.role})
