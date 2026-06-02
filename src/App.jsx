@@ -189,7 +189,7 @@ function DashboardView({ companies }) {
 const TABS = [
   {id:"config",    label:"Configuración", group:null,          color:P.textMuted},
   {id:"sesiones",  label:"Sesiones",      group:"Colaboradores", color:"#4a9356"},
-  {id:"usuarios",  label:"Usuarios",      group:"Colaboradores", color:"#4a9356"},
+  {id:"usuarios",  label:"Accesos al dashboard", group:"Colaboradores", color:"#4a9356"},
   {id:"talleres",  label:"Talleres",      group:"Cultura",      color:P.purple},
   {id:"contenido", label:"Contenido",     group:"Cultura",      color:P.purple},
   {id:"motivos",   label:"Motivos",       group:"Estrategia",   color:P.accent},
@@ -226,16 +226,23 @@ function EmpresaDetail({ company, onBack, reload }) {
       <div style={{width:190,background:P.sidebarBg,borderRight:`1px solid ${P.border}`,overflowY:"auto",flexShrink:0,padding:"10px 8px"}}>
         {/* Config */}
         <button onClick={()=>setTab("config")}
-          style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 11px",borderRadius:8,border:"none",cursor:"pointer",marginBottom:8,
+          style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 11px",borderRadius:8,border:"none",cursor:"pointer",marginBottom:2,
             background:tab==="config"?P.sidebarActiveBg:"none",
             color:tab==="config"?P.primary:P.textMuted,
             fontSize:12,fontWeight:tab==="config"?600:400,textAlign:"left"}}>
           ⚙️ Configuración
         </button>
+        <button onClick={()=>setTab("usuarios")}
+          style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 11px",borderRadius:8,border:"none",cursor:"pointer",marginBottom:8,
+            background:tab==="usuarios"?P.sidebarActiveBg:"none",
+            color:tab==="usuarios"?P.primary:P.textMuted,
+            fontSize:12,fontWeight:tab==="usuarios"?600:400,textAlign:"left"}}>
+          👥 Accesos al dashboard
+        </button>
         {/* Groups */}
         {[
           {group:"Colaboradores",color:P.colIndividual,bg:P.bgIndividual,tabs:[
-            {id:"sesiones",label:"Sesiones",icon:"📊"},{id:"usuarios",label:"Usuarios",icon:"👥"}
+            {id:"sesiones",label:"Sesiones",icon:"📊"}
           ]},
           {group:"Cultura",color:P.colColectivo,bg:P.bgColectivo,tabs:[
             {id:"talleres",label:"Talleres",icon:"🎤"},{id:"contenido",label:"Contenido",icon:"📁"}
@@ -334,7 +341,7 @@ function ConfigTab({ company, reload }) {
 function SesionesTab({ companyId }) {
   const [rows, setRows] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({month:"",year:new Date().getFullYear(),canjeadas:0,realizadas:0,nuevos:0,total_historico:0,c1:0,c2:0,c3:0,c4:0,c5:0,partial:false});
+  const [form, setForm] = useState({month:"",year:new Date().getFullYear(),canjeadas:0,realizadas:0,nuevos:0,activos:0,total_historico:0,c1:0,c2:0,c3:0,c4:0,c5:0,partial:false});
   const [msg, setMsg] = useState("");
   useEffect(()=>{ load(); },[companyId]);
   async function load() { const {data}=await supabase.from("sessions_data").select("*").eq("company_id",companyId).order("year").order("month"); setRows(data||[]); }
@@ -359,6 +366,7 @@ function SesionesTab({ companyId }) {
         <Input label="Canjeadas" value={form.canjeadas} onChange={v=>f("canjeadas",v)} type="number"/>
         <Input label="Realizadas" value={form.realizadas} onChange={v=>f("realizadas",v)} type="number"/>
         <Input label="Nuevos" value={form.nuevos} onChange={v=>f("nuevos",v)} type="number"/>
+        <Input label="Activos" value={form.activos} onChange={v=>f("activos",v)} type="number"/>
         <Input label="Total histórico" value={form.total_historico} onChange={v=>f("total_historico",v)} type="number"/>
         <Input label="C1" value={form.c1} onChange={v=>f("c1",v)} type="number"/>
         <Input label="C2" value={form.c2} onChange={v=>f("c2",v)} type="number"/>
@@ -375,12 +383,12 @@ function SesionesTab({ companyId }) {
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:P.white,borderRadius:10,overflow:"hidden",border:`1px solid ${P.border}`}}>
         <thead><tr style={{borderBottom:`1.5px solid ${P.border}`,background:P.gray50}}>
-          {["Mes","Canj.","Real.","Nuevos","Hist.","C1","C2","C3","C4","C5","Parc.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",color:P.textMuted,fontWeight:600,fontSize:11}}>{h}</th>)}
+          {["Mes","Canj.","Real.","Nuevos","Activos","Hist.","C1","C2","C3","C4","C5","Parc.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",color:P.textMuted,fontWeight:600,fontSize:11}}>{h}</th>)}
         </tr></thead>
         <tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:`1px solid ${P.border}`,background:i%2===0?P.white:P.gray50}}>
           <td style={{padding:"8px 10px",fontWeight:600}}>{r.month} {r.year}</td>
           <td style={{padding:"8px 10px"}}>{r.canjeadas}</td><td style={{padding:"8px 10px"}}>{r.realizadas}</td>
-          <td style={{padding:"8px 10px"}}>{r.nuevos}</td><td style={{padding:"8px 10px"}}>{r.total_historico||"—"}</td>
+          <td style={{padding:"8px 10px"}}>{r.nuevos}</td><td style={{padding:"8px 10px"}}>{r.activos||"—"}</td><td style={{padding:"8px 10px"}}>{r.total_historico||"—"}</td>
           <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c1}</td><td style={{padding:"8px 10px",color:P.textMuted}}>{r.c2}</td>
           <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c3}</td><td style={{padding:"8px 10px",color:P.textMuted}}>{r.c4}</td>
           <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c5}</td>
