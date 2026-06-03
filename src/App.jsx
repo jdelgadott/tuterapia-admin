@@ -343,6 +343,7 @@ function SesionesTab({ companyId }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({month:"",year:new Date().getFullYear(),canjeadas:0,realizadas:0,nuevos:0,activos:0,total_historico:0,c1:0,c2:0,c3:0,c4:0,c5:0,partial:false});
   const [msg, setMsg] = useState("");
+  const [importing, setImporting] = useState(false);
   useEffect(()=>{ load(); },[companyId]);
   async function load() { const {data}=await supabase.from("sessions_data").select("*").eq("company_id",companyId).order("year").order("month"); setRows(data||[]); }
   async function save() {
@@ -353,11 +354,116 @@ function SesionesTab({ companyId }) {
   }
   async function del(id){await supabase.from("sessions_data").delete().eq("id",id);load();}
   const f=(k,v)=>setForm({...form,[k]:parseInt(v)||0});
+
+  async function importCSV(file) {
+    setImporting(true); setMsg("");
+    try {
+      const rawText = await file.text();
+      // Remove BOM if present
+      const text = rawText.replace(/^\uFEFF/, "");
+      
+      // Parse CSV respecting quoted fields with newlines inside
+      function parseCSV(text, sep) {
+        const rows = [];
+        let row = [], field = "", inQuote = false;
+        for(let i=0;i<text.length;i++){
+          const ch = text[i], next = text[i+1];
+          if(ch==='"') { inQuote=!inQuote; }
+          else if(!inQuote && ch===sep) { row.push(field.trim()); field=""; }
+          else if(!inQuote && (ch==="\r"&&next==="\n"||ch==="\n")) {
+            row.push(field.trim()); rows.push(row); row=[]; field="";
+            if(ch==="\r") i++;
+          } else { field+=ch; }
+        }
+        if(field||row.length) { row.push(field.trim()); rows.push(row); }
+        return rows;
+      }
+
+      // Detect separator
+      const firstLine = text.split("\n")[0];
+      const sep = firstLine.includes(";") ? ";" : ",";
+      const allRows = parseCSV(text, sep);
+
+      // Find header row: has "Empresa" and "Mes" in first two cols
+      let headerIdx = -1;
+      for(let i=0;i<allRows.length;i++){
+        const r = allRows[i];
+        if(r.length>2 && r[0].toLowerCase().includes("empresa") && r[1].toLowerCase().replace(/\n/g,"").includes("mes")) {
+          headerIdx = i; break;
+        }
+      }
+      if(headerIdx<0) { setMsg("No se encontró la fila de encabezados. Asegurate de usar el template de Tu Terapia."); setImporting(false); return; }
+
+      // Column positions are fixed in our template:
+      // 0=Empresa, 1=Mes, 2=Año, 3=Canjeadas, 4=Realizadas, 5=Tasa%, 6=CanjUltMes, 7=RealUltMes
+      // 8=Nuevos, 9=Activos, 10=TotalHistorico, 11=PrimeraVez, 12=%PrimeraVez, 13=PromedioSes, 14=Parcial
+      const COL = { mes:1, year:2, canjeadas:3, realizadas:4, nuevos:8, activos:9,
+                    total_historico:10, primera_vez:11, partial:14 };
+
+      const toInt = (val) => val ? parseInt((val+"").replace(/[^0-9]/g,""))||0 : 0;
+
+      const rows_to_insert = [];
+      for(let i=headerIdx+1; i<allRows.length; i++){
+        const row = allRows[i];
+        if(!row || row.length<3) continue;
+        const mesVal = (row[COL.mes]||"").replace(/\n/g,"").trim();
+        const yearVal = parseInt(row[COL.year]);
+        if(!mesVal || isNaN(yearVal) || yearVal<2020) continue;
+        // Skip empty rows
+        if(row.slice(3,12).every(v=>!v||v.trim()==="")) continue;
+        const isPartial = ["si","sí","yes","true","1"].includes((row[COL.partial]||"").toLowerCase().trim());
+        rows_to_insert.push({
+          company_id: companyId,
+          month: mesVal, year: yearVal,
+          canjeadas: toInt(row[COL.canjeadas]),
+          realizadas: toInt(row[COL.realizadas]),
+          nuevos: toInt(row[COL.nuevos]),
+          activos: toInt(row[COL.activos]),
+          total_historico: toInt(row[COL.total_historico]),
+          primera_vez: toInt(row[COL.primera_vez]),
+          c1:0, c2:0, c3:0, c4:0, c5:0,
+          partial: isPartial,
+        });
+      }
+
+      if(rows_to_insert.length===0) { setMsg("No se encontraron filas con datos. Completá el template antes de importar."); setImporting(false); return; }
+
+      let inserted = 0;
+      for(const row of rows_to_insert) {
+        const {error} = await supabase.from("sessions_data").upsert([row], {onConflict:"company_id,month,year"});
+        if(!error) inserted++;
+      }
+      setMsg(`✓ ${inserted} meses importados correctamente.`);
+      load();
+    } catch(e) {
+      setMsg("Error al procesar el archivo: "+e.message);
+    }
+    setImporting(false);
+  }
+
+  async function importMotivosCSV(file) {
+    // handled separately but kept here for reference
+  }
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{fontSize:13,color:P.textMuted}}>{rows.length} meses cargados</div>
-      <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar mes</Btn>
+      <div style={{display:"flex",gap:8}}>
+        <label style={{display:"inline-flex",alignItems:"center",gap:6,background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
+          {importing?"⏳ Importando...":"⬆ Importar Excel/CSV"}
+          <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} disabled={importing} onChange={async e=>{
+            if(!e.target.files[0]) return;
+            const file = e.target.files[0];
+            if(file.name.endsWith(".csv")) {
+              await importCSV(file);
+            } else {
+              setMsg("Por ahora solo se admite CSV. Exportá el Excel como CSV antes de importar.");
+            }
+            e.target.value="";
+          }}/>
+        </label>
+        <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar mes</Btn>
+      </div>
     </div>
     {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
@@ -671,6 +777,7 @@ function MotivosTab({ companyId }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({reason:"",percentage:"",count:"",period:""});
   const [msg, setMsg] = useState("");
+  const [importing, setImporting] = useState(false);
   useEffect(()=>{ load(); },[companyId]);
   async function load(){const {data}=await supabase.from("consultation_reasons").select("*").eq("company_id",companyId).order("percentage",{ascending:false});setRows(data||[]);}
   async function save(){
@@ -680,11 +787,72 @@ function MotivosTab({ companyId }) {
     else{setMsg("Guardado.");setShowForm(false);load();setForm({reason:"",percentage:"",count:"",period:""});}
   }
   async function del(id){await supabase.from("consultation_reasons").delete().eq("id",id);load();}
+
+  async function importCSV(file) {
+    setImporting(true); setMsg("");
+    try {
+      const text = await file.text();
+      const lines = text.trim().split(/\r?\n/);
+      let headerIdx = 0;
+      for(let i=0;i<lines.length;i++){
+        const low = lines[i].toLowerCase();
+        if(low.includes("motivo") || low.includes("reason") || low.includes("consulta")) { headerIdx = i; break; }
+      }
+      const sep = lines[headerIdx].includes(";") ? ";" : ",";
+      const headers = lines[headerIdx].split(sep).map(h=>h.trim().toLowerCase());
+
+      const findCol = (keys) => {
+        for(const key of keys) {
+          const idx = headers.findIndex(h=>h.includes(key));
+          if(idx>=0) return idx;
+        }
+        return -1;
+      };
+
+      const cols = {
+        reason: findCol(["motivo","reason","consulta"]),
+        count: findCol(["cantidad","count","usuarios"]),
+        percentage: findCol(["porcentaje","percentage","%"]),
+        period: findCol(["per","periodo","period"]),
+      };
+
+      const rows_to_insert = [];
+      for(let i=headerIdx+1; i<lines.length; i++) {
+        const row = lines[i].split(sep).map(c=>c.trim().replace(/"/g,""));
+        if(!row[0] || row.join("").trim()==="") continue;
+        const reason = cols.reason>=0 ? row[cols.reason] : row[0];
+        if(!reason || reason.toLowerCase().includes("total")) continue;
+        const count = cols.count>=0 ? parseInt(row[cols.count].replace(/[^0-9]/g,""))||null : null;
+        const pct = cols.percentage>=0 ? parseFloat(row[cols.percentage].replace(/[^0-9.]/g,""))||null : null;
+        const period = cols.period>=0 ? row[cols.period] : "";
+        rows_to_insert.push({company_id:companyId, reason, count, percentage:pct, period});
+      }
+
+      if(rows_to_insert.length===0) { setMsg("No se encontraron motivos válidos."); setImporting(false); return; }
+
+      // Clear existing and re-insert
+      await supabase.from("consultation_reasons").delete().eq("company_id",companyId);
+      const {error} = await supabase.from("consultation_reasons").insert(rows_to_insert);
+      if(error) setMsg("Error: "+error.message);
+      else { setMsg(`✓ ${rows_to_insert.length} motivos importados.`); load(); }
+    } catch(e) {
+      setMsg("Error: "+e.message);
+    }
+    setImporting(false);
+  }
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{fontSize:13,color:P.textMuted}}>{rows.length} motivos</div>
-      <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar motivo</Btn>
+      <div style={{display:"flex",gap:8}}>
+        <label style={{display:"inline-flex",alignItems:"center",gap:6,background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
+          {importing?"⏳ Importando...":"⬆ Importar CSV"}
+          <input type="file" accept=".csv" style={{display:"none"}} disabled={importing} onChange={async e=>{
+            if(e.target.files[0]) { await importCSV(e.target.files[0]); e.target.value=""; }
+          }}/>
+        </label>
+        <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar motivo</Btn>
+      </div>
     </div>
     {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
