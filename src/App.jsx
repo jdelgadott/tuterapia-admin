@@ -791,53 +791,39 @@ function MotivosTab({ companyId }) {
   async function importCSV(file) {
     setImporting(true); setMsg("");
     try {
-      const text = await file.text();
+      const rawText = await file.text();
+      const text = rawText.replace(/^\uFEFF/, "");
+      const sep = text.split("\n")[0].includes(";") ? ";" : ",";
       const lines = text.trim().split(/\r?\n/);
-      let headerIdx = 0;
+      // Find header row: col0="empresa" AND col1 contains "motivo"
+      let headerIdx = -1;
       for(let i=0;i<lines.length;i++){
-        const low = lines[i].toLowerCase();
-        if(low.includes("motivo") || low.includes("reason") || low.includes("consulta")) { headerIdx = i; break; }
-      }
-      const sep = lines[headerIdx].includes(";") ? ";" : ",";
-      const headers = lines[headerIdx].split(sep).map(h=>h.trim().toLowerCase());
-
-      const findCol = (keys) => {
-        for(const key of keys) {
-          const idx = headers.findIndex(h=>h.includes(key));
-          if(idx>=0) return idx;
+        const cells = lines[i].split(sep);
+        if((cells[0]||"").trim().toLowerCase()==="empresa" && (cells[1]||"").trim().toLowerCase().includes("motivo")){
+          headerIdx = i; break;
         }
-        return -1;
-      };
-
-      const cols = {
-        reason: findCol(["motivo","reason","consulta"]),
-        count: findCol(["cantidad","count","usuarios"]),
-        percentage: findCol(["porcentaje","percentage","%"]),
-        period: findCol(["per","periodo","period"]),
-      };
-
+      }
+      if(headerIdx<0){ setMsg("No se encontró la fila de encabezados."); setImporting(false); return; }
+      // col0=Empresa, col1=Motivo, col2=Cantidad, col3=%, col4=Período
       const rows_to_insert = [];
-      for(let i=headerIdx+1; i<lines.length; i++) {
-        const row = lines[i].split(sep).map(c=>c.trim().replace(/"/g,""));
-        if(!row[0] || row.join("").trim()==="") continue;
-        const reason = cols.reason>=0 ? row[cols.reason] : row[0];
-        if(!reason || reason.toLowerCase().includes("total")) continue;
-        const count = cols.count>=0 ? parseInt(row[cols.count].replace(/[^0-9]/g,""))||null : null;
-        const pct = cols.percentage>=0 ? parseFloat(row[cols.percentage].replace(/[^0-9.]/g,""))||null : null;
-        const period = cols.period>=0 ? row[cols.period] : "";
+      for(let i=headerIdx+1; i<lines.length; i++){
+        const cells = lines[i].split(sep).map(v=>(v||"").trim().replace(/"/g,""));
+        if(cells.join("").trim()==="") continue;
+        if((cells[0]||"").toLowerCase().startsWith("total")) continue;
+        if((cells[0]||"").includes("📌")||(cells[0]||"").toLowerCase().includes("instruc")||(cells[0]||"").toLowerCase().includes("fuente")) continue;
+        const reason = (cells[1]||"").trim();
+        if(!reason) continue;
+        const count = parseInt((cells[2]||"").replace(/[^0-9]/g,""))||null;
+        const pct = parseFloat((cells[3]||"").replace(",",".").replace(/[^0-9.]/g,""))||null;
+        const period = (cells[4]||"").trim();
         rows_to_insert.push({company_id:companyId, reason, count, percentage:pct, period});
       }
-
-      if(rows_to_insert.length===0) { setMsg("No se encontraron motivos válidos."); setImporting(false); return; }
-
-      // Clear existing and re-insert
+      if(rows_to_insert.length===0){ setMsg("No se encontraron motivos válidos."); setImporting(false); return; }
       await supabase.from("consultation_reasons").delete().eq("company_id",companyId);
       const {error} = await supabase.from("consultation_reasons").insert(rows_to_insert);
       if(error) setMsg("Error: "+error.message);
       else { setMsg(`✓ ${rows_to_insert.length} motivos importados.`); load(); }
-    } catch(e) {
-      setMsg("Error: "+e.message);
-    }
+    } catch(e) { setMsg("Error: "+e.message); }
     setImporting(false);
   }
   return <div style={{padding:"20px 24px"}}>
