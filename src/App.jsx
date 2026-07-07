@@ -287,22 +287,64 @@ function EmpresaDetail({ company, onBack, reload }) {
 }
 
 // ── CONFIG TAB ─────────────────────────────────────────────────────
+const PLAN_KINDS = [
+  {value:"cuponera_fija", label:"Cuponera Fija", desc:"Pool fijo de sesiones por mes"},
+  {value:"fee_fijo",      label:"Fee Fijo Mensual", desc:"Fee plano + % OFF para colaboradores"},
+  {value:"a_demanda",     label:"A Demanda", desc:"La empresa cubre un % de cada sesión consumida"},
+  {value:"talleres",      label:"Talleres", desc:"Talleres puntuales o ciclos, sin plan individual"},
+];
+const PLAN_KIND_LABELS = {cuponera_fija:"Cuponera Fija", fee_fijo:"Fee Fijo Mensual", a_demanda:"A Demanda", talleres:"Talleres"};
+const ALL_MODULES = [
+  {id:"individual", label:"Colaboradores"},
+  {id:"colectivo",  label:"Cultura de Bienestar"},
+  {id:"estrategico",label:"Estrategia de Bienestar"},
+  {id:"gestion",    label:"Gestión"},
+];
+const PLAN_DEFAULT_MODULES = {
+  cuponera_fija:["individual","colectivo","estrategico","gestion"],
+  fee_fijo:["individual","colectivo","estrategico","gestion"],
+  a_demanda:["individual","colectivo","estrategico","gestion"],
+  talleres:["colectivo","estrategico","gestion"],
+};
+
 function ConfigTab({ company, reload }) {
   const [form, setForm] = useState({
     name:company.name||"", domain:company.domain||"",
-    plan_type:company.plan_type||"Cuponera Fija", plan_coverage:company.plan_coverage||"100%",
-    monthly_plan:company.monthly_plan||300, session_price_ref:company.session_price_ref||1600,
-    start_date:company.start_date||"", workshop_target:company.workshop_target||5,
+    plan_kind:company.plan_kind||"cuponera_fija",
+    coverage_pct:company.coverage_pct!=null?Math.round(Number(company.coverage_pct)*100):100,
+    monthly_plan:company.monthly_plan||"", monthly_fee:company.monthly_fee||"",
+    monthly_cap:company.monthly_cap||"", session_price_ref:company.session_price_ref||1600,
+    start_date:company.start_date||"", renewal:company.renewal||"",
+    workshop_target:company.workshop_target||5,
     contact_name:company.contact_name||"",
     consultoria_activa:company.consultoria_activa||false,
     consultoria_solicitada:company.consultoria_solicitada||false,
     encuesta_frecuencia:company.encuesta_frecuencia||"trimestral",
     referente_email:company.referente_email||"firoldi@tuterapia.com.uy",
+    visible_modules:Array.isArray(company.visible_modules)?company.visible_modules:null,
   });
   const [msg, setMsg] = useState("");
+  const k = form.plan_kind;
+  const defaultModules = PLAN_DEFAULT_MODULES[k]||ALL_MODULES.map(m=>m.id);
+  const effectiveModules = form.visible_modules||defaultModules;
+  function toggleModule(id){
+    const next = effectiveModules.includes(id) ? effectiveModules.filter(x=>x!==id) : [...effectiveModules,id];
+    setForm({...form, visible_modules: next});
+  }
   async function save() {
+    const pct = Math.min(100, Math.max(1, parseInt(form.coverage_pct)||100));
+    const {visible_modules, ...rest} = form;
     const {error} = await supabase.from("companies").update({
-      ...form, monthly_plan:parseInt(form.monthly_plan), session_price_ref:parseInt(form.session_price_ref), workshop_target:parseInt(form.workshop_target)
+      ...rest,
+      plan_type: PLAN_KIND_LABELS[k],
+      plan_coverage: `${pct}%`,
+      coverage_pct: pct/100,
+      monthly_plan: k==="cuponera_fija" ? (parseInt(form.monthly_plan)||null) : null,
+      monthly_fee: k==="fee_fijo" ? (parseInt(form.monthly_fee)||null) : null,
+      monthly_cap: k==="a_demanda" ? (parseInt(form.monthly_cap)||null) : null,
+      session_price_ref: parseInt(form.session_price_ref)||null,
+      workshop_target: parseInt(form.workshop_target)||5,
+      visible_modules: visible_modules,
     }).eq("id",company.id);
     if(error) setMsg("Error: "+error.message);
     else { setMsg("Guardado."); reload(); }
@@ -312,15 +354,29 @@ function ConfigTab({ company, reload }) {
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
       <Input label="Nombre" value={form.name} onChange={v=>setForm({...form,name:v})}/>
       <Input label="Dominio" value={form.domain} onChange={v=>setForm({...form,domain:v})}/>
-      <Select label="Tipo de plan" value={form.plan_type} onChange={v=>setForm({...form,plan_type:v})} options={[{value:"Cuponera Fija",label:"Cuponera Fija"},{value:"A Demanda",label:"A Demanda"}]}/>
-      <Select label="Cobertura" value={form.plan_coverage} onChange={v=>setForm({...form,plan_coverage:v})} options={[{value:"100%",label:"100%"},{value:"60%",label:"60%"},{value:"50%",label:"50%"}]}/>
-      <Input label="Sesiones/mes" value={form.monthly_plan} onChange={v=>setForm({...form,monthly_plan:v})} type="number"/>
-      <Input label="Precio ref. (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>
+      <Select label="Tipo de plan" value={form.plan_kind} onChange={v=>setForm({...form,plan_kind:v,visible_modules:null})} options={PLAN_KINDS}/>
+      {k!=="talleres"&&<Input label={k==="fee_fijo"?"% OFF colaboradores (cobertura %)":"Cobertura empresa (%)"} value={form.coverage_pct} onChange={v=>setForm({...form,coverage_pct:v})} type="number"/>}
+      {k==="cuponera_fija"&&<Input label="Sesiones/mes" value={form.monthly_plan} onChange={v=>setForm({...form,monthly_plan:v})} type="number"/>}
+      {k==="fee_fijo"&&<Input label="Fee mensual (UYU)" value={form.monthly_fee} onChange={v=>setForm({...form,monthly_fee:v})} type="number"/>}
+      {k==="a_demanda"&&<Input label="Tope mensual (sesiones, vacío = sin tope)" value={form.monthly_cap} onChange={v=>setForm({...form,monthly_cap:v})} type="number"/>}
+      {k!=="talleres"&&<Input label="Precio ref. (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>}
       <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
+      <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
       <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
       <Input label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
+    </div>
+    <div style={{padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
+      <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Módulos visibles en el dashboard</div>
+      <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>{form.visible_modules?"Configuración personalizada para esta empresa.":"Default según el tipo de plan. Tocá un módulo para personalizar."}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {ALL_MODULES.map(m=><button key={m.id} onClick={()=>toggleModule(m.id)}
+          style={{background:effectiveModules.includes(m.id)?P.primary:P.gray50,color:effectiveModules.includes(m.id)?"#fff":P.textMuted,border:`1px solid ${effectiveModules.includes(m.id)?P.primary:P.border}`,borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          {effectiveModules.includes(m.id)?"✓ ":""}{m.label}
+        </button>)}
+      </div>
+      {form.visible_modules&&<button onClick={()=>setForm({...form,visible_modules:null})} style={{marginTop:10,background:"none",border:"none",fontSize:11,color:P.accent,cursor:"pointer",padding:0,fontWeight:600}}>Volver al default del plan</button>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:16,padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
       <div style={{flex:1}}>
