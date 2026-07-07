@@ -1140,9 +1140,9 @@ function InformesTab({ companyId }) {
 
 // ── TEXTOS TAB ─────────────────────────────────────────────────────
 const MODULES_HEADERS=[
-  {module:"individual",subs:["Sesiones","Adherencia","Distribución de cupones"],label:"Colaboradores",color:"#4a9356"},
+  {module:"individual",subs:["Sesiones","Adherencia"],label:"Colaboradores",color:"#4a9356"},
   {module:"colectivo",subs:["Talleres","Contenido"],label:"Cultura de Bienestar",color:P.purple},
-  {module:"estrategico",subs:["Bienestar del equipo","Consultoría Tu Terapia","Recursos y reportes"],label:"Estrategia de Bienestar",color:P.accent},
+  {module:"estrategico",subs:["Bienestar del equipo","Consultoría Tu Terapia"],label:"Estrategia de Bienestar",color:P.accent},
   {module:"gestion",subs:["Facturación","Plan activo","Equipo TT"],label:"Gestión",color:P.textMuted},
 ];
 function TextosTab({ companyId }) {
