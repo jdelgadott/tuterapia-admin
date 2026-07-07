@@ -297,7 +297,7 @@ const PLAN_KIND_LABELS = {cuponera_fija:"Cuponera Fija", fee_fijo:"Fee Fijo Mens
 const ALL_MODULES = [
   {id:"individual", label:"Colaboradores",           subs:["Sesiones","Adherencia"]},
   {id:"colectivo",  label:"Cultura de Bienestar",    subs:["Talleres","Contenido"]},
-  {id:"estrategico",label:"Estrategia de Bienestar", subs:["Bienestar del equipo","Consultoría Tu Terapia","Recursos y reportes"]},
+  {id:"estrategico",label:"Estrategia de Bienestar", subs:["Bienestar del equipo","Consultoría Tu Terapia"]},
   {id:"gestion",    label:"Gestión",                 subs:["Facturación","Plan activo","Equipo TT"]},
 ];
 const FULL_VISIBILITY = Object.fromEntries(ALL_MODULES.map(m=>[m.id,m.subs]));
