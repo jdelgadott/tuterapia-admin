@@ -291,21 +291,16 @@ const PLAN_KINDS = [
   {value:"cuponera_fija", label:"Cuponera Fija", desc:"Pool fijo de sesiones por mes"},
   {value:"fee_fijo",      label:"Fee Fijo Mensual", desc:"Fee plano + % OFF para colaboradores"},
   {value:"a_demanda",     label:"A Demanda", desc:"La empresa cubre un % de cada sesión consumida"},
-  {value:"talleres",      label:"Talleres", desc:"Talleres puntuales o ciclos, sin plan individual"},
 ];
-const PLAN_KIND_LABELS = {cuponera_fija:"Cuponera Fija", fee_fijo:"Fee Fijo Mensual", a_demanda:"A Demanda", talleres:"Talleres"};
+const PLAN_KIND_LABELS = {cuponera_fija:"Cuponera Fija", fee_fijo:"Fee Fijo Mensual", a_demanda:"A Demanda"};
+// Deben coincidir con MODULES del dashboard (ids y nombres de subpestañas)
 const ALL_MODULES = [
-  {id:"individual", label:"Colaboradores"},
-  {id:"colectivo",  label:"Cultura de Bienestar"},
-  {id:"estrategico",label:"Estrategia de Bienestar"},
-  {id:"gestion",    label:"Gestión"},
+  {id:"individual", label:"Colaboradores",           subs:["Sesiones","Adherencia"]},
+  {id:"colectivo",  label:"Cultura de Bienestar",    subs:["Talleres","Contenido"]},
+  {id:"estrategico",label:"Estrategia de Bienestar", subs:["Bienestar del equipo","Consultoría Tu Terapia","Recursos y reportes"]},
+  {id:"gestion",    label:"Gestión",                 subs:["Facturación","Plan activo","Equipo TT"]},
 ];
-const PLAN_DEFAULT_MODULES = {
-  cuponera_fija:["individual","colectivo","estrategico","gestion"],
-  fee_fijo:["individual","colectivo","estrategico","gestion"],
-  a_demanda:["individual","colectivo","estrategico","gestion"],
-  talleres:["colectivo","estrategico","gestion"],
-};
+const FULL_VISIBILITY = Object.fromEntries(ALL_MODULES.map(m=>[m.id,m.subs]));
 
 function ConfigTab({ company, reload }) {
   const [form, setForm] = useState({
@@ -321,15 +316,26 @@ function ConfigTab({ company, reload }) {
     consultoria_solicitada:company.consultoria_solicitada||false,
     encuesta_frecuencia:company.encuesta_frecuencia||"trimestral",
     referente_email:company.referente_email||"firoldi@tuterapia.com.uy",
-    visible_modules:Array.isArray(company.visible_modules)?company.visible_modules:null,
+    // Formato: {módulo:[subs visibles]}; null = todo visible. Convierte el formato legacy (array de módulos).
+    visible_modules: Array.isArray(company.visible_modules)
+      ? Object.fromEntries(company.visible_modules.map(id=>[id,(ALL_MODULES.find(m=>m.id===id)||{subs:[]}).subs]))
+      : (company.visible_modules && typeof company.visible_modules==="object") ? company.visible_modules : null,
   });
   const [msg, setMsg] = useState("");
   const k = form.plan_kind;
-  const defaultModules = PLAN_DEFAULT_MODULES[k]||ALL_MODULES.map(m=>m.id);
-  const effectiveModules = form.visible_modules||defaultModules;
+  const effective = form.visible_modules || FULL_VISIBILITY;
   function toggleModule(id){
-    const next = effectiveModules.includes(id) ? effectiveModules.filter(x=>x!==id) : [...effectiveModules,id];
-    setForm({...form, visible_modules: next});
+    const cur = {...effective};
+    if((cur[id]||[]).length) delete cur[id];
+    else cur[id] = ALL_MODULES.find(m=>m.id===id).subs;
+    setForm({...form, visible_modules: cur});
+  }
+  function toggleSub(id, s){
+    const cur = {...effective};
+    const subs = cur[id]||[];
+    const next = subs.includes(s) ? subs.filter(x=>x!==s) : [...subs, s];
+    if(next.length) cur[id]=next; else delete cur[id];
+    setForm({...form, visible_modules: cur});
   }
   async function save() {
     const pct = Math.min(100, Math.max(1, parseInt(form.coverage_pct)||100));
@@ -354,12 +360,12 @@ function ConfigTab({ company, reload }) {
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
       <Input label="Nombre" value={form.name} onChange={v=>setForm({...form,name:v})}/>
       <Input label="Dominio" value={form.domain} onChange={v=>setForm({...form,domain:v})}/>
-      <Select label="Tipo de plan" value={form.plan_kind} onChange={v=>setForm({...form,plan_kind:v,visible_modules:null})} options={PLAN_KINDS}/>
-      {k!=="talleres"&&<Input label={k==="fee_fijo"?"% OFF colaboradores (cobertura %)":"Cobertura empresa (%)"} value={form.coverage_pct} onChange={v=>setForm({...form,coverage_pct:v})} type="number"/>}
+      <Select label="Tipo de plan" value={form.plan_kind} onChange={v=>setForm({...form,plan_kind:v})} options={PLAN_KINDS}/>
+      <Input label={k==="fee_fijo"?"% OFF colaboradores (cobertura %)":"Cobertura empresa (%)"} value={form.coverage_pct} onChange={v=>setForm({...form,coverage_pct:v})} type="number"/>
       {k==="cuponera_fija"&&<Input label="Sesiones/mes" value={form.monthly_plan} onChange={v=>setForm({...form,monthly_plan:v})} type="number"/>}
       {k==="fee_fijo"&&<Input label="Fee mensual (UYU)" value={form.monthly_fee} onChange={v=>setForm({...form,monthly_fee:v})} type="number"/>}
       {k==="a_demanda"&&<Input label="Tope mensual (sesiones, vacío = sin tope)" value={form.monthly_cap} onChange={v=>setForm({...form,monthly_cap:v})} type="number"/>}
-      {k!=="talleres"&&<Input label="Precio ref. (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>}
+      <Input label="Precio ref. (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>
       <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
@@ -368,15 +374,29 @@ function ConfigTab({ company, reload }) {
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
     <div style={{padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
-      <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Módulos visibles en el dashboard</div>
-      <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>{form.visible_modules?"Configuración personalizada para esta empresa.":"Default según el tipo de plan. Tocá un módulo para personalizar."}</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {ALL_MODULES.map(m=><button key={m.id} onClick={()=>toggleModule(m.id)}
-          style={{background:effectiveModules.includes(m.id)?P.primary:P.gray50,color:effectiveModules.includes(m.id)?"#fff":P.textMuted,border:`1px solid ${effectiveModules.includes(m.id)?P.primary:P.border}`,borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-          {effectiveModules.includes(m.id)?"✓ ":""}{m.label}
-        </button>)}
+      <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Secciones visibles en el dashboard</div>
+      <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>{form.visible_modules?"Configuración personalizada para esta empresa.":"Por defecto la empresa ve todo. Tocá una sección o subpestaña para personalizar."}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {ALL_MODULES.map(m=>{
+          const modOn = (effective[m.id]||[]).length>0;
+          return <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>toggleModule(m.id)}
+              style={{background:modOn?P.primary:P.gray50,color:modOn?"#fff":P.textMuted,border:`1px solid ${modOn?P.primary:P.border}`,borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:700,cursor:"pointer",minWidth:170,textAlign:"left"}}>
+              {modOn?"✓ ":""}{m.label}
+            </button>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {m.subs.map(s=>{
+                const subOn = (effective[m.id]||[]).includes(s);
+                return <button key={s} onClick={()=>toggleSub(m.id,s)}
+                  style={{background:subOn?P.white:P.gray50,color:subOn?P.primary:P.textMuted,border:`1px solid ${subOn?P.primary:P.border}`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:600,cursor:"pointer",opacity:subOn?1:0.7}}>
+                  {subOn?"✓ ":""}{s}
+                </button>;
+              })}
+            </div>
+          </div>;
+        })}
       </div>
-      {form.visible_modules&&<button onClick={()=>setForm({...form,visible_modules:null})} style={{marginTop:10,background:"none",border:"none",fontSize:11,color:P.accent,cursor:"pointer",padding:0,fontWeight:600}}>Volver al default del plan</button>}
+      {form.visible_modules&&<button onClick={()=>setForm({...form,visible_modules:null})} style={{marginTop:10,background:"none",border:"none",fontSize:11,color:P.accent,cursor:"pointer",padding:0,fontWeight:600}}>Volver a mostrar todo (default)</button>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:16,padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
       <div style={{flex:1}}>
