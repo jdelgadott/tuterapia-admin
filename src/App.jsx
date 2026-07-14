@@ -196,7 +196,6 @@ const TABS = [
   {id:"recomendaciones",label:"Recomendaciones",group:"Estrategia",color:P.accent},
   {id:"hitos",     label:"Hitos",         group:"Estrategia",   color:P.accent},
   {id:"encuestas", label:"Encuestas",     group:"Estrategia",   color:P.accent},
-  {id:"informes",  label:"Informes",      group:"Estrategia",   color:P.accent},
   {id:"textos",    label:"Textos",        group:"Estrategia",   color:P.accent},
   {id:"facturacion",label:"Facturación",  group:"Gestión",      color:P.textMuted},
 ];
@@ -250,7 +249,7 @@ function EmpresaDetail({ company, onBack, reload }) {
           {group:"Estrategia",color:P.colEstrategico,bg:P.bgEstrategico,tabs:[
             {id:"motivos",label:"Motivos",icon:"🧠"},{id:"recomendaciones",label:"Recomendaciones",icon:"💡"},
             {id:"hitos",label:"Hitos",icon:"🏆"},{id:"encuestas",label:"Encuestas",icon:"📝"},
-            {id:"informes",label:"Informes",icon:"📋"},{id:"textos",label:"Textos",icon:"✏️"}
+            {id:"textos",label:"Textos",icon:"✏️"}
           ]},
           {group:"Gestión",color:P.colGestion,bg:P.bgGestion,tabs:[
             {id:"facturacion",label:"Facturación",icon:"💳"}
@@ -269,7 +268,7 @@ function EmpresaDetail({ company, onBack, reload }) {
       {/* Content */}
       <div style={{flex:1,overflowY:"auto",background:P.bg}}>
         {tab==="config"&&<ConfigTab company={co} reload={reload}/>}
-        {tab==="sesiones"&&<SesionesTab companyId={co.id}/>}
+        {tab==="sesiones"&&<SesionesTab companyId={co.id} planKind={co.plan_kind||"cuponera_fija"}/>}
         {tab==="usuarios"&&<UsuariosTab company={co}/>}
         {tab==="talleres"&&<TalleresTab companyId={co.id}/>}
         {tab==="contenido"&&<ContenidoTab companyId={co.id}/>}
@@ -277,7 +276,6 @@ function EmpresaDetail({ company, onBack, reload }) {
         {tab==="recomendaciones"&&<RecomendacionesTab companyId={co.id}/>}
         {tab==="hitos"&&<HitosTab companyId={co.id}/>}
         {tab==="encuestas"&&<EncuestasTab companyId={co.id}/>}
-        {tab==="informes"&&<InformesTab companyId={co.id}/>}
         {tab==="textos"&&<TextosTab companyId={co.id}/>}
         {tab==="facturacion"&&<FacturacionTab companyId={co.id} company={co}/>}
       </div>
@@ -435,7 +433,9 @@ function ConfigTab({ company, reload }) {
 }
 
 // ── SESIONES TAB ───────────────────────────────────────────────────
-function SesionesTab({ companyId }) {
+function SesionesTab({ companyId, planKind }) {
+  // Cuponera trackea canjeadas+realizadas+cupones; a demanda y fee fijo solo canjeadas (el dash las muestra como "Sesiones")
+  const isCuponera = planKind==="cuponera_fija";
   const [rows, setRows] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({month:"",year:new Date().getFullYear(),canjeadas:0,realizadas:0,nuevos:0,activos:0,total_historico:0,c1:0,c2:0,c3:0,c4:0,c5:0,partial:false});
@@ -566,17 +566,19 @@ function SesionesTab({ companyId }) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
         <Input label="Mes" value={form.month} onChange={v=>setForm({...form,month:v})} placeholder="ej. May 26"/>
         <Input label="Año" value={form.year} onChange={v=>setForm({...form,year:v})} type="number"/>
-        <Input label="Canjeadas" value={form.canjeadas} onChange={v=>f("canjeadas",v)} type="number"/>
-        <Input label="Realizadas" value={form.realizadas} onChange={v=>f("realizadas",v)} type="number"/>
+        <Input label={isCuponera?"Canjeadas":"Sesiones (canjeadas)"} value={form.canjeadas} onChange={v=>f("canjeadas",v)} type="number"/>
+        {isCuponera&&<Input label="Realizadas" value={form.realizadas} onChange={v=>f("realizadas",v)} type="number"/>}
         <Input label="Nuevos" value={form.nuevos} onChange={v=>f("nuevos",v)} type="number"/>
         <Input label="Activos" value={form.activos} onChange={v=>f("activos",v)} type="number"/>
         <Input label="Total histórico" value={form.total_historico} onChange={v=>f("total_historico",v)} type="number"/>
-        <Input label="C1" value={form.c1} onChange={v=>f("c1",v)} type="number"/>
-        <Input label="C2" value={form.c2} onChange={v=>f("c2",v)} type="number"/>
-        <Input label="C3" value={form.c3} onChange={v=>f("c3",v)} type="number"/>
-        <Input label="C4" value={form.c4} onChange={v=>f("c4",v)} type="number"/>
-        <Input label="C5" value={form.c5} onChange={v=>f("c5",v)} type="number"/>
+        <Input label="Primera vez" value={form.primera_vez||0} onChange={v=>f("primera_vez",v)} type="number"/>
+        {isCuponera&&<Input label="C1" value={form.c1} onChange={v=>f("c1",v)} type="number"/>}
+        {isCuponera&&<Input label="C2" value={form.c2} onChange={v=>f("c2",v)} type="number"/>}
+        {isCuponera&&<Input label="C3" value={form.c3} onChange={v=>f("c3",v)} type="number"/>}
+        {isCuponera&&<Input label="C4" value={form.c4} onChange={v=>f("c4",v)} type="number"/>}
+        {isCuponera&&<Input label="C5" value={form.c5} onChange={v=>f("c5",v)} type="number"/>}
       </div>
+      {!isCuponera&&<div style={{fontSize:11,color:P.textMuted,margin:"2px 0 10px"}}>Este plan ({planKind==="fee_fijo"?"Fee Mensual":"A Demanda"}) solo muestra sesiones canjeadas en el dash — no hace falta cargar realizadas ni cupones.</div>}
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
         <input type="checkbox" checked={form.partial} onChange={e=>setForm({...form,partial:e.target.checked})} id="partial"/>
         <label htmlFor="partial" style={{fontSize:12,color:P.textMuted}}>Mes parcial</label>
@@ -586,15 +588,18 @@ function SesionesTab({ companyId }) {
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:P.white,borderRadius:10,overflow:"hidden",border:`1px solid ${P.border}`}}>
         <thead><tr style={{borderBottom:`1.5px solid ${P.border}`,background:P.gray50}}>
-          {["Mes","Canj.","Real.","Nuevos","Activos","Hist.","C1","C2","C3","C4","C5","Parc.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",color:P.textMuted,fontWeight:600,fontSize:11}}>{h}</th>)}
+          {(isCuponera
+            ?["Mes","Canj.","Real.","Nuevos","Activos","Hist.","C1","C2","C3","C4","C5","Parc.",""]
+            :["Mes","Sesiones","Nuevos","Activos","Hist.","Parc.",""]
+          ).map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",color:P.textMuted,fontWeight:600,fontSize:11}}>{h}</th>)}
         </tr></thead>
         <tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:`1px solid ${P.border}`,background:i%2===0?P.white:P.gray50}}>
           <td style={{padding:"8px 10px",fontWeight:600}}>{r.month} {r.year}</td>
-          <td style={{padding:"8px 10px"}}>{r.canjeadas}</td><td style={{padding:"8px 10px"}}>{r.realizadas}</td>
+          <td style={{padding:"8px 10px"}}>{r.canjeadas}</td>{isCuponera&&<td style={{padding:"8px 10px"}}>{r.realizadas}</td>}
           <td style={{padding:"8px 10px"}}>{r.nuevos}</td><td style={{padding:"8px 10px"}}>{r.activos||"—"}</td><td style={{padding:"8px 10px"}}>{r.total_historico||"—"}</td>
-          <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c1}</td><td style={{padding:"8px 10px",color:P.textMuted}}>{r.c2}</td>
-          <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c3}</td><td style={{padding:"8px 10px",color:P.textMuted}}>{r.c4}</td>
-          <td style={{padding:"8px 10px",color:P.textMuted}}>{r.c5}</td>
+          {isCuponera&&<td style={{padding:"8px 10px",color:P.textMuted}}>{r.c1}</td>}{isCuponera&&<td style={{padding:"8px 10px",color:P.textMuted}}>{r.c2}</td>}
+          {isCuponera&&<td style={{padding:"8px 10px",color:P.textMuted}}>{r.c3}</td>}{isCuponera&&<td style={{padding:"8px 10px",color:P.textMuted}}>{r.c4}</td>}
+          {isCuponera&&<td style={{padding:"8px 10px",color:P.textMuted}}>{r.c5}</td>}
           <td style={{padding:"8px 10px"}}>{r.partial?"✓":""}</td>
           <td style={{padding:"8px 10px"}}><button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer"}}>🗑</button></td>
         </tr>)}
@@ -1101,57 +1106,6 @@ function EncuestasTab({ companyId }) {
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin encuestas aún.</div></Card>}
       {rows.map(r=><div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div>{r.descripcion&&<div style={{fontSize:11,color:P.textMuted}}>{r.descripcion}</div>}</div>
-        {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
-        <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
-      </div>)}
-    </div>
-  </div>;
-}
-
-// ── INFORMES TAB ───────────────────────────────────────────────────
-function InformesTab({ companyId }) {
-  const [rows, setRows] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({title:"",period:"",_file:null});
-  const [msg, setMsg] = useState("");
-  useEffect(()=>{ load(); },[companyId]);
-  async function load(){const {data}=await supabase.from("informes").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);}
-  async function save(){
-    if(!form.title){setMsg("Título obligatorio.");return;}
-    const {data:ins,error}=await supabase.from("informes").insert([{title:form.title,period:form.period,company_id:companyId}]).select().single();
-    if(error){setMsg("Error: "+error.message);return;}
-    if(form._file){
-      const ext=form._file.name.split('.').pop();const path=`${companyId}/${ins.id}.${ext}`;
-      const {error:upErr}=await supabase.storage.from("informes").upload(path,form._file,{upsert:true,contentType:form._file.type});
-      if(!upErr){const {data}=supabase.storage.from("informes").getPublicUrl(path);await supabase.from("informes").update({file_url:data.publicUrl}).eq("id",ins.id);}
-    }
-    setMsg("Informe creado.");setShowForm(false);load();setForm({title:"",period:"",_file:null});
-  }
-  async function del(id){await supabase.from("informes").delete().eq("id",id);load();}
-  return <div style={{padding:"20px 24px"}}>
-    <Msg text={msg}/>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-      <div style={{fontSize:13,color:P.textMuted}}>{rows.length} informes</div>
-      <Btn small onClick={()=>setShowForm(!showForm)}>+ Nuevo informe</Btn>
-    </div>
-    {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Informe Q1 2026"/>
-        <Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="ej. Ene-Mar 2026"/>
-      </div>
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Archivo</label>
-        <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-          📎 {form._file?form._file.name:"Seleccionar archivo"}
-          <input type="file" accept=".pdf,.xlsx,.docx" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
-        </label>
-      </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
-    </Card>}
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin informes aún.</div></Card>}
-      {rows.map(r=><div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
-        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div>{r.period&&<div style={{fontSize:11,color:P.textMuted}}>{r.period}</div>}</div>
         {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
         <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
       </div>)}
