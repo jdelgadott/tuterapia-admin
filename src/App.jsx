@@ -1284,13 +1284,20 @@ function FacturacionTab({ companyId, company }) {
 // ── EMPRESAS LIST ──────────────────────────────────────────────────
 function EmpresasView({ companies, reload, onSelect }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({name:"",domain:"",plan_type:"Cuponera Fija",plan_coverage:"100%",monthly_plan:"300",session_price_ref:"1600",start_date:"",workshop_target:"5",contact_name:""});
+  const emptyForm = {name:"",domain:"",plan_kind:"cuponera_fija",start_date:"",contact_name:""};
+  const [form, setForm] = useState(emptyForm);
   const [msg, setMsg] = useState("");
   async function save(){
     if(!form.name||!form.domain){setMsg("Nombre y dominio obligatorios.");return;}
-    const {error}=await supabase.from("companies").insert([{...form,monthly_plan:parseInt(form.monthly_plan)||300,session_price_ref:parseInt(form.session_price_ref)||1600,workshop_target:parseInt(form.workshop_target)||5}]);
+    const {error}=await supabase.from("companies").insert([{
+      name:form.name, domain:form.domain,
+      plan_kind:form.plan_kind, plan_type:PLAN_KIND_LABELS[form.plan_kind],
+      coverage_pct: form.plan_kind==="cuponera_fija"?1:0.5,
+      plan_coverage: form.plan_kind==="cuponera_fija"?"100%":"50%",
+      start_date:form.start_date, contact_name:form.contact_name, workshop_target:5,
+    }]);
     if(error) setMsg("Error: "+error.message);
-    else{setMsg("Empresa creada.");setShowForm(false);reload();setForm({name:"",domain:"",plan_type:"Cuponera Fija",plan_coverage:"100%",monthly_plan:"300",session_price_ref:"1600",start_date:"",workshop_target:"5",contact_name:""});}
+    else{setMsg("Empresa creada. Ahora completá el plan (costos por sesión, límites, secciones visibles) en su pestaña Configuración.");setShowForm(false);reload();setForm(emptyForm);}
   }
   async function del(id){if(!confirm("¿Eliminar empresa?"))return;await supabase.from("companies").delete().eq("id",id);reload();}
   return <div style={{padding:"24px 28px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"}}>
@@ -1304,12 +1311,11 @@ function EmpresasView({ companies, reload, onSelect }) {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Input label="Nombre" value={form.name} onChange={v=>setForm({...form,name:v})} placeholder="ej. TCS"/>
         <Input label="Dominio" value={form.domain} onChange={v=>setForm({...form,domain:v})} placeholder="ej. tcs.com"/>
-        <Select label="Tipo de plan" value={form.plan_type} onChange={v=>setForm({...form,plan_type:v})} options={[{value:"Cuponera Fija",label:"Cuponera Fija"},{value:"A Demanda",label:"A Demanda"}]}/>
-        <Select label="Cobertura" value={form.plan_coverage} onChange={v=>setForm({...form,plan_coverage:v})} options={[{value:"100%",label:"100%"},{value:"60%",label:"60%"},{value:"50%",label:"50%"}]}/>
-        <Input label="Sesiones/mes" value={form.monthly_plan} onChange={v=>setForm({...form,monthly_plan:v})} type="number"/>
+        <Select label="Tipo de plan" value={form.plan_kind} onChange={v=>setForm({...form,plan_kind:v})} options={PLAN_KINDS}/>
         <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
         <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
       </div>
+      <div style={{fontSize:11,color:P.textMuted,margin:"4px 0 10px"}}>Los detalles del plan (sesiones, costos por sesión, límites por colaborador, secciones visibles) se completan después en la pestaña <b>Configuración</b> de la empresa.</div>
       <div style={{display:"flex",gap:8}}><Btn onClick={save}>Guardar</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
