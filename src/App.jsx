@@ -309,6 +309,8 @@ function ConfigTab({ company, reload }) {
     coverage_pct:company.coverage_pct!=null?Math.round(Number(company.coverage_pct)*100):100,
     monthly_plan:company.monthly_plan||"", monthly_fee:company.monthly_fee||"",
     monthly_cap:company.monthly_cap||"", session_price_ref:company.session_price_ref||1600,
+    session_cost_online:company.session_cost_online||"", session_cost_presencial:company.session_cost_presencial||"",
+    user_session_limit:company.user_session_limit||"", user_monthly_limit:company.user_monthly_limit||"",
     start_date:company.start_date||"", renewal:company.renewal||"",
     workshop_target:company.workshop_target||5,
     contact_name:company.contact_name||"",
@@ -348,7 +350,11 @@ function ConfigTab({ company, reload }) {
       monthly_plan: k==="cuponera_fija" ? (parseInt(form.monthly_plan)||null) : null,
       monthly_fee: k==="fee_fijo" ? (parseInt(form.monthly_fee)||null) : null,
       monthly_cap: k==="a_demanda" ? (parseInt(form.monthly_cap)||null) : null,
-      session_price_ref: parseInt(form.session_price_ref)||null,
+      session_price_ref: k==="cuponera_fija" ? (parseInt(form.session_price_ref)||null) : null,
+      session_cost_online: k==="a_demanda" ? (parseInt(form.session_cost_online)||null) : null,
+      session_cost_presencial: k==="a_demanda" ? (parseInt(form.session_cost_presencial)||null) : null,
+      user_session_limit: parseInt(form.user_session_limit)||null,
+      user_monthly_limit: parseInt(form.user_monthly_limit)||null,
       workshop_target: parseInt(form.workshop_target)||5,
       visible_modules: visible_modules,
     }).eq("id",company.id);
@@ -361,11 +367,15 @@ function ConfigTab({ company, reload }) {
       <Input label="Nombre" value={form.name} onChange={v=>setForm({...form,name:v})}/>
       <Input label="Dominio" value={form.domain} onChange={v=>setForm({...form,domain:v})}/>
       <Select label="Tipo de plan" value={form.plan_kind} onChange={v=>setForm({...form,plan_kind:v})} options={PLAN_KINDS}/>
-      <Input label={k==="fee_fijo"?"% OFF colaboradores (cobertura %)":"Cobertura empresa (%)"} value={form.coverage_pct} onChange={v=>setForm({...form,coverage_pct:v})} type="number"/>
+      {k!=="cuponera_fija"&&<Input label={k==="fee_fijo"?"% OFF colaboradores (cobertura %)":"Cobertura empresa (%)"} value={form.coverage_pct} onChange={v=>setForm({...form,coverage_pct:v})} type="number"/>}
       {k==="cuponera_fija"&&<Input label="Sesiones/mes" value={form.monthly_plan} onChange={v=>setForm({...form,monthly_plan:v})} type="number"/>}
+      {k==="cuponera_fija"&&<Input label="Costo por sesión — único blended (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>}
       {k==="fee_fijo"&&<Input label="Fee mensual (UYU)" value={form.monthly_fee} onChange={v=>setForm({...form,monthly_fee:v})} type="number"/>}
+      {k==="a_demanda"&&<Input label="Costo sesión ONLINE — paga la empresa (UYU)" value={form.session_cost_online} onChange={v=>setForm({...form,session_cost_online:v})} type="number"/>}
+      {k==="a_demanda"&&<Input label="Costo sesión PRESENCIAL — paga la empresa (UYU)" value={form.session_cost_presencial} onChange={v=>setForm({...form,session_cost_presencial:v})} type="number"/>}
       {k==="a_demanda"&&<Input label="Tope mensual (sesiones, vacío = sin tope)" value={form.monthly_cap} onChange={v=>setForm({...form,monthly_cap:v})} type="number"/>}
-      <Input label="Precio ref. (UYU)" value={form.session_price_ref} onChange={v=>setForm({...form,session_price_ref:v})} type="number"/>
+      <Input label="Límite de sesiones por colaborador (vacío = sin límite)" value={form.user_session_limit} onChange={v=>setForm({...form,user_session_limit:v})} type="number"/>
+      <Input label="Límite por colaborador por MES (vacío = sin límite)" value={form.user_monthly_limit} onChange={v=>setForm({...form,user_monthly_limit:v})} type="number"/>
       <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
@@ -373,6 +383,17 @@ function ConfigTab({ company, reload }) {
       <Input label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
+    {k==="a_demanda"&&(()=>{
+      const cov=(parseInt(form.coverage_pct)||100)/100;
+      const desc=cov>=1?0.10:0.05;
+      const sugO=Math.round(1600*cov*(1-desc)), sugP=Math.round(1850*cov*(1-desc));
+      return <div style={{padding:"12px 16px",background:P.accentBg,borderRadius:10,marginBottom:16,fontSize:12,color:"#1a4a7a",lineHeight:1.7}}>
+        <b>Sugerido</b> según lista ($1.600 online · $1.850 presencial, IVA incl.), cobertura {Math.round(cov*100)}% y descuento por convenio {Math.round(desc*100)}%: <b>$ {sugO} online · $ {sugP} presencial</b>
+        <button onClick={()=>setForm({...form,session_cost_online:sugO,session_cost_presencial:sugP})}
+          style={{marginLeft:10,background:P.accent,color:"#fff",border:"none",borderRadius:6,padding:"3px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Usar sugeridos</button>
+        {cov<1&&<div style={{marginTop:4}}>⚠︎ Estos montos son el <b>{Math.round(cov*100)}% que financia la empresa</b> — el resto lo aporta el colaborador (co-pago). Así se muestran también en el dash.</div>}
+      </div>;
+    })()}
     <div style={{padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
       <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Secciones visibles en el dashboard</div>
       <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>{form.visible_modules?"Configuración personalizada para esta empresa.":"Por defecto la empresa ve todo. Tocá una sección o subpestaña para personalizar."}</div>
