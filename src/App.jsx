@@ -1085,7 +1085,7 @@ function EncuestasTab({ companyId }) {
   useEffect(()=>{ load(); },[companyId]);
   async function load(){
     const {data}=await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);
-    const {data:resp}=await supabase.from("encuesta_respuestas").select("answers,comment,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
+    const {data:resp}=await supabase.from("encuesta_respuestas").select("id,answers,comment,comment_approved,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
   }
   async function save(){
     if(!form.title){setMsg("Título obligatorio.");return;}
@@ -1118,11 +1118,17 @@ function EncuestasTab({ companyId }) {
               <div style={{fontSize:10,color:P.textMuted,marginTop:2}}>{d.label}</div>
             </div>)}
           </div>
-          <div style={{fontSize:11,color:P.textMuted,marginBottom:comments.length?10:0}}>Usá estos promedios para cargar los puntajes trimestrales en Seguimiento (ROI por dimensión).</div>
+          <div style={{fontSize:11,color:P.textMuted,marginBottom:comments.length?10:0}}>Estos promedios se cargan solos en el dash de la empresa, agrupados por semestre (mínimo 3 respuestas por semestre). Si se cargan valores manuales por trimestre/semestre, esos tienen prioridad.</div>
           {comments.length>0&&<div>
-            <div style={{fontSize:11,fontWeight:700,color:P.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",margin:"8px 0 6px"}}>Comentarios anónimos ({comments.length} más recientes)</div>
+            <div style={{fontSize:11,fontWeight:700,color:P.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",margin:"8px 0 6px"}}>Comentarios anónimos ({comments.length} más recientes) — elegí cuáles ve la empresa</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {comments.map((r,i)=><div key={i} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"9px 12px",fontSize:12,color:P.text,lineHeight:1.6}}>"{r.comment}"<span style={{fontSize:10,color:P.textMuted,marginLeft:8}}>{new Date(r.created_at).toLocaleDateString("es-UY")}</span></div>)}
+              {comments.map((r)=><div key={r.id} style={{background:"#fff",border:`1px solid ${r.comment_approved?P.primary+"66":P.border}`,borderRadius:8,padding:"9px 12px",fontSize:12,color:P.text,lineHeight:1.6,display:"flex",gap:10,alignItems:"flex-start"}}>
+                <div style={{flex:1}}>"{r.comment}"<span style={{fontSize:10,color:P.textMuted,marginLeft:8}}>{new Date(r.created_at).toLocaleDateString("es-UY")}</span></div>
+                <button onClick={async()=>{await supabase.from("encuesta_respuestas").update({comment_approved:!r.comment_approved}).eq("id",r.id);load();}}
+                  style={{flexShrink:0,background:r.comment_approved?P.primary:P.gray50,color:r.comment_approved?"#fff":P.textMuted,border:`1px solid ${r.comment_approved?P.primary:P.border}`,borderRadius:20,padding:"3px 12px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  {r.comment_approved?"✓ Visible en dash":"Oculto"}
+                </button>
+              </div>)}
             </div>
           </div>}
         </>}
