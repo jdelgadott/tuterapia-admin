@@ -544,7 +544,9 @@ function SesionesTab({ companyId, planKind }) {
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div style={{fontSize:13,color:P.textMuted}}>{rows.length} meses cargados</div>
+      <div style={{fontSize:13,color:P.textMuted}}>{rows.length} meses cargados
+        {!isCuponera&&<div style={{fontSize:11,color:P.accent,marginTop:3}}>ℹ️ Se usa el mismo template para todos los planes. Para esta empresa ({planKind==="fee_fijo"?"Fee Mensual":"A Demanda"}) completá solo <b>Canjeadas</b>, Nuevos, Activos, Total histórico y Primera vez — las columnas Realizadas y Tasa se dejan vacías.</div>}
+      </div>
       <div style={{display:"flex",gap:8}}>
         <label style={{display:"inline-flex",alignItems:"center",gap:6,background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
           {importing?"⏳ Importando...":"⬆ Importar Excel/CSV"}
