@@ -1066,14 +1066,27 @@ function HitosTab({ companyId }) {
 }
 
 // ── ENCUESTAS TAB ──────────────────────────────────────────────────
+// Mapeo pregunta→dimensión de la encuesta web (debe coincidir con ENCUESTA_DIMS del dash)
+const ENCUESTA_DIM_MAP=[
+  {label:"Bienestar y salud mental",qs:[1,2,3,4],color:"#1A5C4A"},
+  {label:"Clima y comunicación",qs:[5,6,7,8],color:"#267A62"},
+  {label:"Liderazgo efectivo",qs:[9,10,11,12],color:"#5040A0"},
+  {label:"Engagement y compromiso",qs:[13,14,15,16],color:"#2a6aaa"},
+  {label:"Ausentismo percibido",qs:[17,18,19],color:"#8B4A8B"},
+  {label:"Productividad sostenible",qs:[20,21,22],color:"#B03030"},
+];
 function EncuestasTab({ companyId }) {
   const [rows, setRows] = useState([]);
+  const [respuestas, setRespuestas] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({title:"",descripcion:"",_file:null});
   const [uploading, setUploading] = useState({});
   const [msg, setMsg] = useState("");
   useEffect(()=>{ load(); },[companyId]);
-  async function load(){const {data}=await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);}
+  async function load(){
+    const {data}=await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);
+    const {data:resp}=await supabase.from("encuesta_respuestas").select("answers,comment,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
+  }
   async function save(){
     if(!form.title){setMsg("Título obligatorio.");return;}
     const {data:ins,error}=await supabase.from("encuestas_archivos").insert([{title:form.title,descripcion:form.descripcion,company_id:companyId}]).select().single();
@@ -1086,8 +1099,34 @@ function EncuestasTab({ companyId }) {
     setMsg("Encuesta creada.");setShowForm(false);load();setForm({title:"",descripcion:"",_file:null});
   }
   async function del(id){await supabase.from("encuestas_archivos").delete().eq("id",id);load();}
+  const dimAvgs=ENCUESTA_DIM_MAP.map(d=>{
+    const vals=respuestas.flatMap(r=>d.qs.map(q=>r.answers?.[`q${q}`]).filter(v=>typeof v==="number"));
+    return {...d, avg: vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length):null};
+  });
+  const comments=respuestas.filter(r=>r.comment).slice(0,10);
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
+    <Card style={{marginBottom:16,background:P.lighter,borderColor:P.primary+"33"}}>
+      <SectionTitle>Resultados de la encuesta web</SectionTitle>
+      {respuestas.length===0
+        ? <div style={{fontSize:12,color:P.textMuted,padding:"6px 0"}}>Sin respuestas aún. El link de la encuesta aparece en el dash de la empresa (Consultoría → Encuesta para tu equipo) — RRHH lo comparte con su equipo y las respuestas anónimas caen acá solas.</div>
+        : <>
+          <div style={{fontSize:12,color:P.textMuted,marginBottom:12}}><b style={{color:P.primary,fontSize:16}}>{respuestas.length}</b> respuesta{respuestas.length!==1?"s":""} · última: {new Date(respuestas[0].created_at).toLocaleDateString("es-UY")}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8,marginBottom:12}}>
+            {dimAvgs.map(d=><div key={d.label} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:18,fontWeight:800,color:d.color}}>{d.avg!=null?d.avg.toFixed(1):"—"}<span style={{fontSize:11,fontWeight:400,color:P.textMuted}}> /10</span></div>
+              <div style={{fontSize:10,color:P.textMuted,marginTop:2}}>{d.label}</div>
+            </div>)}
+          </div>
+          <div style={{fontSize:11,color:P.textMuted,marginBottom:comments.length?10:0}}>Usá estos promedios para cargar los puntajes trimestrales en Seguimiento (ROI por dimensión).</div>
+          {comments.length>0&&<div>
+            <div style={{fontSize:11,fontWeight:700,color:P.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",margin:"8px 0 6px"}}>Comentarios anónimos ({comments.length} más recientes)</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {comments.map((r,i)=><div key={i} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"9px 12px",fontSize:12,color:P.text,lineHeight:1.6}}>"{r.comment}"<span style={{fontSize:10,color:P.textMuted,marginLeft:8}}>{new Date(r.created_at).toLocaleDateString("es-UY")}</span></div>)}
+            </div>
+          </div>}
+        </>}
+    </Card>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
       <div style={{fontSize:13,color:P.textMuted}}>{rows.length} encuestas</div>
       <Btn small onClick={()=>setShowForm(!showForm)}>+ Nueva encuesta</Btn>
