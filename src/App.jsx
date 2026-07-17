@@ -1078,6 +1078,8 @@ const ENCUESTA_DIM_MAP=[
 function EncuestasTab({ companyId }) {
   const [rows, setRows] = useState([]);
   const [respuestas, setRespuestas] = useState([]);
+  const [seguimiento, setSeguimiento] = useState([]);
+  const [segForm, setSegForm] = useState({period:"",score:""});
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({title:"",descripcion:"",_file:null});
   const [uploading, setUploading] = useState({});
@@ -1086,6 +1088,13 @@ function EncuestasTab({ companyId }) {
   async function load(){
     const {data}=await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);
     const {data:resp}=await supabase.from("encuesta_respuestas").select("id,answers,comment,comment_approved,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
+    const {data:seg}=await supabase.from("seguimiento_beneficio").select("*").eq("company_id",companyId).order("created_at");setSeguimiento(seg||[]);
+  }
+  async function addSeguimiento(){
+    if(!segForm.period||!segForm.score){setMsg("Completá período y puntaje.");return;}
+    const {error}=await supabase.from("seguimiento_beneficio").upsert([{company_id:companyId,period:segForm.period.trim(),score:parseFloat(segForm.score)}],{onConflict:"company_id,period"});
+    if(error){setMsg("Error: "+error.message);return;}
+    setSegForm({period:"",score:""});setMsg("Seguimiento guardado.");load();
   }
   async function save(){
     if(!form.title){setMsg("Título obligatorio.");return;}
@@ -1106,6 +1115,21 @@ function EncuestasTab({ companyId }) {
   const comments=respuestas.filter(r=>r.comment).slice(0,10);
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
+    <Card style={{marginBottom:16}}>
+      <SectionTitle>Seguimiento intraplataforma (trimestral)</SectionTitle>
+      <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Puntaje de la encuesta que hacemos DENTRO de la plataforma a quienes usan el beneficio. Se muestra en el dash en "Seguimiento de personas que usan el beneficio". Escala 1–10.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:seguimiento.length?12:0}}>
+        <div style={{width:130}}><Input label="Período" value={segForm.period} onChange={v=>setSegForm({...segForm,period:v})} placeholder="ej. Q3 2026"/></div>
+        <div style={{width:110}}><Input label="Puntaje (1-10)" value={segForm.score} onChange={v=>setSegForm({...segForm,score:v})} type="number"/></div>
+        <Btn small onClick={addSeguimiento}>Guardar</Btn>
+      </div>
+      {seguimiento.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {seguimiento.map(s=><div key={s.id} style={{background:P.lighter,border:`1px solid ${P.border}`,borderRadius:8,padding:"6px 12px",fontSize:12,display:"flex",gap:8,alignItems:"center"}}>
+          <b>{s.period}</b> · {Number(s.score).toFixed(1)}
+          <button onClick={async()=>{await supabase.from("seguimiento_beneficio").delete().eq("id",s.id);load();}} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:13,padding:0}}>✕</button>
+        </div>)}
+      </div>}
+    </Card>
     <Card style={{marginBottom:16,background:P.lighter,borderColor:P.primary+"33"}}>
       <SectionTitle>Resultados de la encuesta web</SectionTitle>
       {respuestas.length===0
