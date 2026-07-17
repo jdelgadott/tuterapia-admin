@@ -309,6 +309,7 @@ function ConfigTab({ company, reload }) {
     monthly_cap:company.monthly_cap||"", session_price_ref:company.session_price_ref||1600,
     session_cost_online:company.session_cost_online||"", session_cost_presencial:company.session_cost_presencial||"",
     user_session_limit:company.user_session_limit||"", user_monthly_limit:company.user_monthly_limit||"",
+    headcount_total:company.headcount_total||"", headcount_leaders:company.headcount_leaders||"",
     start_date:company.start_date||"", renewal:company.renewal||"",
     workshop_target:company.workshop_target||5,
     contact_name:company.contact_name||"",
@@ -353,6 +354,8 @@ function ConfigTab({ company, reload }) {
       session_cost_presencial: k==="a_demanda" ? (parseInt(form.session_cost_presencial)||null) : null,
       user_session_limit: parseInt(form.user_session_limit)||null,
       user_monthly_limit: parseInt(form.user_monthly_limit)||null,
+      headcount_total: parseInt(form.headcount_total)||null,
+      headcount_leaders: parseInt(form.headcount_leaders)||null,
       workshop_target: parseInt(form.workshop_target)||5,
       visible_modules: visible_modules,
     }).eq("id",company.id);
@@ -374,6 +377,8 @@ function ConfigTab({ company, reload }) {
       {k==="a_demanda"&&<Input label="Tope mensual (sesiones, vacío = sin tope)" value={form.monthly_cap} onChange={v=>setForm({...form,monthly_cap:v})} type="number"/>}
       <Input label="Límite de sesiones por colaborador (vacío = sin límite)" value={form.user_session_limit} onChange={v=>setForm({...form,user_session_limit:v})} type="number"/>
       <Input label="Límite por colaborador por MES (vacío = sin límite)" value={form.user_monthly_limit} onChange={v=>setForm({...form,user_monthly_limit:v})} type="number"/>
+      <Input label="Dotación total (para control de encuestas)" value={form.headcount_total} onChange={v=>setForm({...form,headcount_total:v})} type="number"/>
+      <Input label="Cantidad de líderes/mandos medios" value={form.headcount_leaders} onChange={v=>setForm({...form,headcount_leaders:v})} type="number"/>
       <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
@@ -1079,6 +1084,7 @@ function EncuestasTab({ companyId }) {
   const [rows, setRows] = useState([]);
   const [respuestas, setRespuestas] = useState([]);
   const [seguimiento, setSeguimiento] = useState([]);
+  const [compState, setCompState] = useState(null);
   const [segForm, setSegForm] = useState({period:"",score:""});
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({title:"",descripcion:"",_file:null});
@@ -1087,8 +1093,9 @@ function EncuestasTab({ companyId }) {
   useEffect(()=>{ load(); },[companyId]);
   async function load(){
     const {data}=await supabase.from("encuestas_archivos").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);
-    const {data:resp}=await supabase.from("encuesta_respuestas").select("id,answers,comment,comment_approved,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
+    const {data:resp}=await supabase.from("encuesta_respuestas").select("id,role,answers,comment,comment_approved,created_at").eq("company_id",companyId).order("created_at",{ascending:false});setRespuestas(resp||[]);
     const {data:seg}=await supabase.from("seguimiento_beneficio").select("*").eq("company_id",companyId).order("created_at");setSeguimiento(seg||[]);
+    const {data:comp}=await supabase.from("companies").select("encuesta_abierta,headcount_total,headcount_leaders").eq("id",companyId).single();setCompState(comp||null);
   }
   async function addSeguimiento(){
     if(!segForm.period||!segForm.score){setMsg("Completá período y puntaje.");return;}
@@ -1108,10 +1115,22 @@ function EncuestasTab({ companyId }) {
     setMsg("Encuesta creada.");setShowForm(false);load();setForm({title:"",descripcion:"",_file:null});
   }
   async function del(id){await supabase.from("encuestas_archivos").delete().eq("id",id);load();}
-  const dimAvgs=ENCUESTA_DIM_MAP.map(d=>{
-    const vals=respuestas.flatMap(r=>d.qs.map(q=>r.answers?.[`q${q}`]).filter(v=>typeof v==="number"));
+  const segAvgs=(rol)=>ENCUESTA_DIM_MAP.map(d=>{
+    const vals=respuestas.filter(r=>(r.role||"colaborador")===rol).flatMap(r=>d.qs.map(q=>r.answers?.[`q${q}`]).filter(v=>typeof v==="number"));
     return {...d, avg: vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length):null};
   });
+  const nEq=respuestas.filter(r=>(r.role||"colaborador")==="colaborador").length;
+  const nLid=respuestas.filter(r=>r.role==="lider").length;
+  const avgsEq=segAvgs("colaborador"), avgsLid=segAvgs("lider");
+  const LIDER_METRICS=[["Gestión y apoyo",[23,24,30]],["Productividad del equipo",[25]],["Presencia y energía",[26]],["Retención esperada",[27]],["Creatividad e ideas",[28]],["Bienestar del líder",[29]]];
+  const lidMetrics=LIDER_METRICS.map(([l,qs])=>{
+    const vals=respuestas.filter(r=>r.role==="lider").flatMap(r=>qs.map(q=>r.answers?.[`q${q}`]).filter(v=>typeof v==="number"));
+    return [l, vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length):null];
+  });
+  async function toggleAbierta(){
+    await supabase.from("companies").update({encuesta_abierta:!compState?.encuesta_abierta}).eq("id",companyId);
+    load();
+  }
   const comments=respuestas.filter(r=>r.comment).slice(0,10);
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
@@ -1131,17 +1150,44 @@ function EncuestasTab({ companyId }) {
       </div>}
     </Card>
     <Card style={{marginBottom:16,background:P.lighter,borderColor:P.primary+"33"}}>
-      <SectionTitle>Resultados de la encuesta web</SectionTitle>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <SectionTitle>Resultados de la encuesta web</SectionTitle>
+        <button onClick={toggleAbierta}
+          style={{background:compState?.encuesta_abierta?P.primary:P.gray50,color:compState?.encuesta_abierta?"#fff":P.textMuted,border:`1px solid ${compState?.encuesta_abierta?P.primary:P.border}`,borderRadius:20,padding:"5px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          {compState?.encuesta_abierta?"● Encuesta ABIERTA — cerrar":"○ Encuesta cerrada — abrir"}
+        </button>
+      </div>
+      <div style={{fontSize:11,color:P.textMuted,margin:"4px 0 10px"}}>Los colaboradores solo pueden responder mientras la encuesta esté abierta. Abrila durante la ventana de aplicación (2-3 semanas por semestre) y cerrala al terminar.</div>
       {respuestas.length===0
-        ? <div style={{fontSize:12,color:P.textMuted,padding:"6px 0"}}>Sin respuestas aún. El link de la encuesta aparece en el dash de la empresa (Consultoría → Encuesta para tu equipo) — RRHH lo comparte con su equipo y las respuestas anónimas caen acá solas.</div>
+        ? <div style={{fontSize:12,color:P.textMuted,padding:"6px 0"}}>Sin respuestas aún. Los links (general y líderes) aparecen en el dash de la empresa (Consultoría → Encuesta para tu equipo) — RRHH los comparte y las respuestas anónimas caen acá solas.</div>
         : <>
-          <div style={{fontSize:12,color:P.textMuted,marginBottom:12}}><b style={{color:P.primary,fontSize:16}}>{respuestas.length}</b> respuesta{respuestas.length!==1?"s":""} · última: {new Date(respuestas[0].created_at).toLocaleDateString("es-UY")}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8,marginBottom:12}}>
-            {dimAvgs.map(d=><div key={d.label} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"10px 12px"}}>
-              <div style={{fontSize:18,fontWeight:800,color:d.color}}>{d.avg!=null?d.avg.toFixed(1):"—"}<span style={{fontSize:11,fontWeight:400,color:P.textMuted}}> /10</span></div>
-              <div style={{fontSize:10,color:P.textMuted,marginTop:2}}>{d.label}</div>
-            </div>)}
+          <div style={{fontSize:12,color:P.textMuted,marginBottom:12}}>
+            <b style={{color:P.primary,fontSize:16}}>{nEq}</b> equipo{compState?.headcount_total?` (dotación ~${compState.headcount_total})`:""}
+            {nEq>0&&compState?.headcount_total&&nEq>compState.headcount_total&&<span style={{color:P.red,fontWeight:700}}> ⚠️ más respuestas que dotación</span>}
+            {" · "}<b style={{color:"#B45309",fontSize:16}}>{nLid}</b> líderes{compState?.headcount_leaders?` (esperados ~${compState.headcount_leaders})`:""}
+            {nLid>0&&compState?.headcount_leaders&&nLid>compState.headcount_leaders&&<span style={{color:P.red,fontWeight:700}}> ⚠️ más líderes que los esperados</span>}
+            {" · última: "}{new Date(respuestas[0].created_at).toLocaleDateString("es-UY")}
           </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8,marginBottom:12}}>
+            {avgsEq.map((d,i)=>{
+              const lid=avgsLid[i].avg;
+              const gap=d.avg!=null&&lid!=null?Math.round((lid-d.avg)*10)/10:null;
+              return <div key={d.label} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"10px 12px"}}>
+                <div style={{fontSize:18,fontWeight:800,color:d.color}}>{d.avg!=null?d.avg.toFixed(1):"—"}<span style={{fontSize:11,fontWeight:400,color:P.textMuted}}> /10 equipo</span></div>
+                {lid!=null&&<div style={{fontSize:12,fontWeight:700,color:"#B45309"}}>{lid.toFixed(1)} líderes{gap!=null?` · brecha ${gap>0?"+":""}${gap}`:""}</div>}
+                <div style={{fontSize:10,color:P.textMuted,marginTop:2}}>{d.label}</div>
+              </div>;
+            })}
+          </div>
+          {nLid>0&&<div style={{marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Bloque de líderes (q23-q30)</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+              {lidMetrics.map(([l,v])=><div key={l} style={{background:"#fff",border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 12px"}}>
+                <div style={{fontSize:16,fontWeight:800,color:"#B45309"}}>{v!=null?v.toFixed(1):"—"}</div>
+                <div style={{fontSize:10,color:P.textMuted}}>{l}</div>
+              </div>)}
+            </div>
+          </div>}
           <div style={{fontSize:11,color:P.textMuted,marginBottom:comments.length?10:0}}>Estos promedios se cargan solos en el dash de la empresa, agrupados por semestre (mínimo 3 respuestas por semestre). Si se cargan valores manuales por trimestre/semestre, esos tienen prioridad.</div>
           {comments.length>0&&<div>
             <div style={{fontSize:11,fontWeight:700,color:P.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",margin:"8px 0 6px"}}>Comentarios anónimos ({comments.length} más recientes) — elegí cuáles ve la empresa</div>
