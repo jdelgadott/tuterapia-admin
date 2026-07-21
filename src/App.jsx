@@ -1128,7 +1128,12 @@ function EncuestasTab({ companyId }) {
     return [l, vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length):null];
   });
   async function toggleAbierta(){
-    await supabase.from("companies").update({encuesta_abierta:!compState?.encuesta_abierta}).eq("id",companyId);
+    const next=!compState?.encuesta_abierta;
+    setCompState(s=>({...(s||{}),encuesta_abierta:next}));
+    // .select().single() fuerza a que un bloqueo de RLS (0 filas actualizadas) aparezca como error visible
+    const {error}=await supabase.from("companies").update({encuesta_abierta:next}).eq("id",companyId).select("encuesta_abierta").single();
+    if(error) setMsg(`Error al ${next?"abrir":"cerrar"} la encuesta: ${error.message}`);
+    else setMsg(`Encuesta ${next?"abierta":"cerrada"}.`);
     load();
   }
   const comments=respuestas.filter(r=>r.comment).slice(0,10);
