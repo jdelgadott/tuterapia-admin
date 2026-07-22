@@ -590,7 +590,7 @@ function SesionesTab({ companyId, planKind }) {
         <input type="checkbox" checked={form.partial} onChange={e=>setForm({...form,partial:e.target.checked})} id="partial"/>
         <label htmlFor="partial" style={{fontSize:12,color:P.textMuted}}>Mes parcial</label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:P.white,borderRadius:10,overflow:"hidden",border:`1px solid ${P.border}`}}>
@@ -734,6 +734,7 @@ function TalleresTab({ companyId }) {
   const [rows, setRows] = useState([]);
   const [recs, setRecs] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
   const [form, setForm] = useState({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""});
   const [recForm, setRecForm] = useState({title:"",descripcion:"",month:""});
@@ -741,11 +742,19 @@ function TalleresTab({ companyId }) {
   useEffect(()=>{ load(); loadRecs(); },[companyId]);
   async function load(){const {data}=await supabase.from("workshops").select("*").eq("company_id",companyId).order("date",{ascending:false});setRows(data||[]);}
   async function loadRecs(){const {data}=await supabase.from("workshops_recommended").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRecs(data||[]);}
+  function resetForm(){ setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""}); setEditingId(null); }
+  function editRow(r){
+    setForm({title:r.title||"",date:r.date||"",speaker:r.speaker||"",initials:r.initials||"",type:r.type||"Activación",lang:r.lang||"Español",rating:r.rating??"",rating_tallerista:r.rating_tallerista??"",rating_relevancia:r.rating_relevancia??"",cost:r.cost??"",cost_usd:r.cost_usd??""});
+    setEditingId(r.id); setShowForm(true);
+  }
   async function save(){
     if(!form.title||!form.date){setMsg("Título y fecha obligatorios.");return;}
-    const {error}=await supabase.from("workshops").insert([{...form,company_id:companyId,rating:parseFloat(form.rating)||null,rating_tallerista:parseFloat(form.rating_tallerista)||null,rating_relevancia:parseFloat(form.rating_relevancia)||null,cost:parseInt(form.cost)||null,cost_usd:parseFloat(form.cost_usd)||null}]);
+    const payload={title:form.title,date:form.date,speaker:form.speaker,initials:form.initials,type:form.type,lang:form.lang,rating:parseFloat(form.rating)||null,rating_tallerista:parseFloat(form.rating_tallerista)||null,rating_relevancia:parseFloat(form.rating_relevancia)||null,cost:parseInt(form.cost)||null,cost_usd:parseFloat(form.cost_usd)||null};
+    const {error}= editingId
+      ? await supabase.from("workshops").update(payload).eq("id",editingId)
+      : await supabase.from("workshops").insert([{...payload,company_id:companyId}]);
     if(error) setMsg("Error: "+error.message);
-    else{setMsg("Taller guardado.");setShowForm(false);load();setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""});}
+    else{setMsg(editingId?"Taller actualizado.":"Taller guardado.");setShowForm(false);load();resetForm();}
   }
   async function saveRec(){
     if(!recForm.title){setMsg("Título obligatorio.");return;}
@@ -764,9 +773,10 @@ function TalleresTab({ companyId }) {
     {subtab==="realizados"&&<>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
         <div style={{fontSize:13,color:P.textMuted}}>{rows.length} talleres</div>
-        <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar taller</Btn>
+        <Btn small onClick={()=>{ if(showForm){setShowForm(false);resetForm();} else {resetForm();setShowForm(true);} }}>+ Agregar taller</Btn>
       </div>
       {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
+        <div style={{fontSize:12,fontWeight:700,color:P.primary,marginBottom:10}}>{editingId?"Editar taller":"Nuevo taller"}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Mindfulness en el trabajo"/>
           <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})} placeholder="ej. Ago 2025"/>
@@ -780,7 +790,7 @@ function TalleresTab({ companyId }) {
           <Input label="Costo pagado (UYU) — se usa en inversión" value={form.cost} onChange={v=>setForm({...form,cost:v})} type="number" placeholder="ej. 28000"/>
           <Input label="Costo facturado (USD) — referencia" value={form.cost_usd} onChange={v=>setForm({...form,cost_usd:v})} type="number" placeholder="ej. 732"/>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
       </Card>}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin talleres aún.</div></Card>}
@@ -796,7 +806,10 @@ function TalleresTab({ companyId }) {
             </div>}
             {r.cost&&<div style={{fontSize:11,color:P.textMuted,marginTop:2}}>Costo: $ {new Intl.NumberFormat("es-UY").format(r.cost)}{r.cost_usd?` · USD ${r.cost_usd}`:""}</div>}
           </div>
-          <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={()=>editRow(r)} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:15}} title="Editar">✏️</button>
+            <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+          </div>
         </div>)}
       </div>
     </>}
@@ -869,7 +882,7 @@ function ContenidoTab({ companyId }) {
           <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin contenido aún.</div></Card>}
@@ -959,7 +972,7 @@ function MotivosTab({ companyId }) {
         <Input label="Cantidad (opcional)" value={form.count} onChange={v=>setForm({...form,count:v})} type="number"/>
         <Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="ej. Q1 2026"/>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin motivos aún.</div></Card>}
@@ -1005,7 +1018,7 @@ function RecomendacionesTab({ companyId }) {
         <Select label="Urgencia" value={form.urgency} onChange={v=>setForm({...form,urgency:v})} options={[{value:"alta",label:"Urgente"},{value:"media",label:"Media prioridad"},{value:"baja",label:"A considerar"}]}/>
         <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})}/>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin recomendaciones aún.</div></Card>}
@@ -1059,7 +1072,7 @@ function HitosTab({ companyId }) {
         <input type="checkbox" checked={form.reached} onChange={e=>setForm({...form,reached:e.target.checked})} id="reached"/>
         <label htmlFor="reached" style={{fontSize:12,color:P.textMuted}}>Ya alcanzado</label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin hitos aún.</div></Card>}
@@ -1225,7 +1238,7 @@ function EncuestasTab({ companyId }) {
           <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin encuestas aún.</div></Card>}
@@ -1340,7 +1353,7 @@ function FacturacionTab({ companyId, company }) {
           <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin facturas aún.</div></Card>}
