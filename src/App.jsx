@@ -735,7 +735,7 @@ function TalleresTab({ companyId }) {
   const [recs, setRecs] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showRecForm, setShowRecForm] = useState(false);
-  const [form, setForm] = useState({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:""});
+  const [form, setForm] = useState({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""});
   const [recForm, setRecForm] = useState({title:"",descripcion:"",month:""});
   const [msg, setMsg] = useState("");
   useEffect(()=>{ load(); loadRecs(); },[companyId]);
@@ -743,9 +743,9 @@ function TalleresTab({ companyId }) {
   async function loadRecs(){const {data}=await supabase.from("workshops_recommended").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRecs(data||[]);}
   async function save(){
     if(!form.title||!form.date){setMsg("Título y fecha obligatorios.");return;}
-    const {error}=await supabase.from("workshops").insert([{...form,company_id:companyId,rating:parseFloat(form.rating)||null,rating_tallerista:parseFloat(form.rating_tallerista)||null,rating_relevancia:parseFloat(form.rating_relevancia)||null}]);
+    const {error}=await supabase.from("workshops").insert([{...form,company_id:companyId,rating:parseFloat(form.rating)||null,rating_tallerista:parseFloat(form.rating_tallerista)||null,rating_relevancia:parseFloat(form.rating_relevancia)||null,cost:parseInt(form.cost)||null,cost_usd:parseFloat(form.cost_usd)||null}]);
     if(error) setMsg("Error: "+error.message);
-    else{setMsg("Taller guardado.");setShowForm(false);load();setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:""});}
+    else{setMsg("Taller guardado.");setShowForm(false);load();setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""});}
   }
   async function saveRec(){
     if(!recForm.title){setMsg("Título obligatorio.");return;}
@@ -777,6 +777,8 @@ function TalleresTab({ companyId }) {
           <Input label="★ Satisfacción general" value={form.rating} onChange={v=>setForm({...form,rating:v})} type="number" placeholder="ej. 4.8"/>
           <Input label="★ Calificación tallerista" value={form.rating_tallerista} onChange={v=>setForm({...form,rating_tallerista:v})} type="number"/>
           <Input label="★ Relevancia contenido" value={form.rating_relevancia} onChange={v=>setForm({...form,rating_relevancia:v})} type="number"/>
+          <Input label="Costo pagado (UYU) — se usa en inversión" value={form.cost} onChange={v=>setForm({...form,cost:v})} type="number" placeholder="ej. 28000"/>
+          <Input label="Costo facturado (USD) — referencia" value={form.cost_usd} onChange={v=>setForm({...form,cost_usd:v})} type="number" placeholder="ej. 732"/>
         </div>
         <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
       </Card>}
@@ -792,6 +794,7 @@ function TalleresTab({ companyId }) {
             {(r.rating||r.rating_tallerista||r.rating_relevancia)&&<div style={{fontSize:11,color:P.accent,marginTop:2}}>
               {r.rating&&`★ ${r.rating} general`} {r.rating_tallerista&&`· ${r.rating_tallerista} tallerista`} {r.rating_relevancia&&`· ${r.rating_relevancia} relevancia`}
             </div>}
+            {r.cost&&<div style={{fontSize:11,color:P.textMuted,marginTop:2}}>Costo: $ {new Intl.NumberFormat("es-UY").format(r.cost)}{r.cost_usd?` · USD ${r.cost_usd}`:""}</div>}
           </div>
           <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
         </div>)}
