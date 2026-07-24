@@ -662,13 +662,26 @@ function UsuariosTab({ company }) {
     });
     const result=await res.json();
     if(result.error) setMsg(`${form.full_name} agregado. Mail: ${result.error}`);
+    else if(result.existing) setMsg(`${form.full_name} ya tenía cuenta de Tu Terapia: se le dio acceso a esta empresa. Entra con su contraseña de siempre (sin nueva invitación).`);
     else setMsg(`Invitación enviada a ${form.email}.`);
     setShowForm(false);setForm({email:"",full_name:"",role:"viewer"});setFormPerms({individual:true,colectivo:true,estrategico:true,gestion:false});
     setLoading(false);load();
   }
   async function toggleActive(u){await supabase.from("company_users").update({active:!u.active}).eq("id",u.id);load();}
   async function updatePerms(userId,newPerms){await savePerms(userId,newPerms);setUserPerms(prev=>({...prev,[userId]:newPerms}));}
-  async function del(id){await supabase.from("user_permissions").delete().eq("user_id",id);await supabase.from("company_users").delete().eq("id",id);load();}
+  async function del(id){
+    const u=users.find(x=>x.id===id);
+    await supabase.from("user_permissions").delete().eq("user_id",id);
+    await supabase.from("company_users").delete().eq("id",id);
+    // Purga la cuenta de login si ya no tiene acceso a ninguna empresa (libera el mail)
+    if(u?.email){
+      const {data:res}=await supabase.functions.invoke("delete-user",{body:{email:u.email}});
+      if(res?.purged) setMsg(`Usuario eliminado. Su cuenta de acceso también se borró — el mail queda libre.`);
+      else if(res?.remaining) setMsg(`Usuario eliminado de esta empresa. Conserva acceso a ${res.remaining} empresa(s) más.`);
+      else setMsg("Usuario eliminado.");
+    }
+    load();
+  }
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
