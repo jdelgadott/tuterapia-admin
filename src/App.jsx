@@ -590,7 +590,7 @@ function SesionesTab({ companyId, planKind }) {
         <input type="checkbox" checked={form.partial} onChange={e=>setForm({...form,partial:e.target.checked})} id="partial"/>
         <label htmlFor="partial" style={{fontSize:12,color:P.textMuted}}>Mes parcial</label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:P.white,borderRadius:10,overflow:"hidden",border:`1px solid ${P.border}`}}>
@@ -895,7 +895,7 @@ function ContenidoTab({ companyId }) {
           <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin contenido aún.</div></Card>}
@@ -985,7 +985,7 @@ function MotivosTab({ companyId }) {
         <Input label="Cantidad (opcional)" value={form.count} onChange={v=>setForm({...form,count:v})} type="number"/>
         <Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="ej. Q1 2026"/>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin motivos aún.</div></Card>}
@@ -1031,7 +1031,7 @@ function RecomendacionesTab({ companyId }) {
         <Select label="Urgencia" value={form.urgency} onChange={v=>setForm({...form,urgency:v})} options={[{value:"alta",label:"Urgente"},{value:"media",label:"Media prioridad"},{value:"baja",label:"A considerar"}]}/>
         <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})}/>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin recomendaciones aún.</div></Card>}
@@ -1085,7 +1085,7 @@ function HitosTab({ companyId }) {
         <input type="checkbox" checked={form.reached} onChange={e=>setForm({...form,reached:e.target.checked})} id="reached"/>
         <label htmlFor="reached" style={{fontSize:12,color:P.textMuted}}>Ya alcanzado</label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin hitos aún.</div></Card>}
@@ -1251,7 +1251,7 @@ function EncuestasTab({ companyId }) {
           <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin encuestas aún.</div></Card>}
@@ -1366,7 +1366,7 @@ function FacturacionTab({ companyId, company }) {
           <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
         </label>
       </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
     </Card>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin facturas aún.</div></Card>}
