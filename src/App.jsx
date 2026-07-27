@@ -285,6 +285,12 @@ function EmpresaDetail({ company, onBack, reload }) {
 }
 
 // ── CONFIG TAB ─────────────────────────────────────────────────────
+// Referentes TT — los emails deben coincidir EXACTO con TT_TEAM del dash (si no, el dash muestra el referente equivocado)
+const REFERENTES = [
+  {value:"firoldi@tuterapia.com.uy",  label:"Flor — Florencia Iroldi"},
+  {value:"imazzilli@tuterapia.com.uy",label:"Isma — Ismael Mazzilli"},
+  {value:"jdelgado@tuterapia.com.uy", label:"Nacho — Juan Ignacio Delgado"},
+];
 const PLAN_KINDS = [
   {value:"cuponera_fija", label:"Cuponera Fija", desc:"Pool fijo de sesiones por mes"},
   {value:"fee_fijo",      label:"Fee Fijo Mensual", desc:"Fee plano + % OFF para colaboradores"},
@@ -383,7 +389,7 @@ function ConfigTab({ company, reload }) {
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
       <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
-      <Input label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})}/>
+      <Select label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})} options={REFERENTES}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
     {k==="a_demanda"&&(()=>{
