@@ -117,6 +117,7 @@ function Sidebar({ active, setActive, adminName, onLogout }) {
     {id:"dashboard", icon:"🏠", label:"Dashboard"},
     {id:"empresas",  icon:"🏢", label:"Empresas"},
     {id:"talleristas",icon:"🎤",label:"Talleristas"},
+    {id:"equipo",    icon:"👥", label:"Equipo TT"},
     {id:"tracking",  icon:"📈", label:"Tracking"},
   ];
   return (
@@ -285,12 +286,6 @@ function EmpresaDetail({ company, onBack, reload }) {
 }
 
 // ── CONFIG TAB ─────────────────────────────────────────────────────
-// Referentes TT — los emails deben coincidir EXACTO con TT_TEAM del dash (si no, el dash muestra el referente equivocado)
-const REFERENTES = [
-  {value:"firoldi@tuterapia.com.uy",  label:"Flor — Florencia Iroldi"},
-  {value:"imazzilli@tuterapia.com.uy",label:"Isma — Ismael Mazzilli"},
-  {value:"jdelgado@tuterapia.com.uy", label:"Nacho — Juan Ignacio Delgado"},
-];
 const PLAN_KINDS = [
   {value:"cuponera_fija", label:"Cuponera Fija", desc:"Pool fijo de sesiones por mes"},
   {value:"fee_fijo",      label:"Fee Fijo Mensual", desc:"Fee plano + % OFF para colaboradores"},
@@ -329,6 +324,12 @@ function ConfigTab({ company, reload }) {
       : (company.visible_modules && typeof company.visible_modules==="object") ? company.visible_modules : null,
   });
   const [msg, setMsg] = useState("");
+  // Referentes disponibles: equipo TT activo marcado como referente (Equipo TT en el sidebar)
+  const [referentes, setReferentes] = useState([]);
+  useEffect(()=>{ (async()=>{
+    const {data}=await supabase.from("admin_users").select("email,name,short_name").eq("is_referente",true).eq("active",true).order("name");
+    setReferentes((data||[]).map(r=>({value:r.email,label:r.short_name?`${r.short_name} — ${r.name}`:r.name})));
+  })(); },[]);
   const k = form.plan_kind;
   const effective = form.visible_modules || FULL_VISIBILITY;
   function toggleModule(id){
@@ -389,7 +390,7 @@ function ConfigTab({ company, reload }) {
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
       <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
-      <Select label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})} options={REFERENTES}/>
+      <Select label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})} options={referentes}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
     {k==="a_demanda"&&(()=>{
@@ -1523,6 +1524,116 @@ function TalleristasView() {
   </div>;
 }
 
+// ── EQUIPO TT (admins + referentes) ────────────────────────────────
+const EMPTY_MIEMBRO={email:"",name:"",short_name:"",role:"",phone:"",whatsapp:"",initials:"",area:"",calendar_url:"",is_referente:true,active:true,_photoFile:null};
+function EquipoView() {
+  const [rows,setRows]=useState([]);
+  const [showForm,setShowForm]=useState(false);
+  const [editingId,setEditingId]=useState(null);
+  const [form,setForm]=useState(EMPTY_MIEMBRO);
+  const [uploading,setUploading]=useState({});
+  const [msg,setMsg]=useState("");
+  useEffect(()=>{ load(); },[]);
+  async function load(){const {data}=await supabase.from("admin_users").select("*").order("name");setRows(data||[]);}
+  function reset(){setForm(EMPTY_MIEMBRO);setEditingId(null);}
+  function edit(r){setForm({email:r.email||"",name:r.name||"",short_name:r.short_name||"",role:r.role||"",phone:r.phone||"",whatsapp:r.whatsapp||"",initials:r.initials||"",area:r.area||"",calendar_url:r.calendar_url||"",is_referente:r.is_referente!==false,active:r.active!==false,_photoFile:null});setEditingId(r.id);setShowForm(true);}
+  async function save(){
+    if(!form.email||!form.name){setMsg("Email y nombre son obligatorios.");return;}
+    const {_photoFile,...payload}=form;
+    payload.email=payload.email.trim().toLowerCase();
+    let id=editingId;
+    if(editingId){
+      const {error}=await supabase.from("admin_users").update(payload).eq("id",editingId);
+      if(error){setMsg("Error: "+error.message);return;}
+      setMsg("Miembro actualizado.");
+    } else {
+      const {data:ins,error}=await supabase.from("admin_users").insert([payload]).select().single();
+      if(error){setMsg("Error: "+error.message);return;}
+      id=ins.id;
+      // Invitación para que pueda entrar al panel admin
+      const {data:res}=await supabase.functions.invoke("invite-user",{body:{email:payload.email,full_name:payload.name}});
+      setMsg(res?.existing?`${payload.name} agregado. Ya tenía cuenta: entra con su contraseña de siempre.`:`${payload.name} agregado. Se le envió la invitación para crear su contraseña.`);
+    }
+    if(_photoFile&&id) await uploadPhoto(id,_photoFile,true);
+    setShowForm(false);reset();load();
+  }
+  async function uploadPhoto(id,file,silent){
+    setUploading(u=>({...u,[id]:true}));
+    const ext=file.name.split('.').pop();const path=`equipo/${id}.${ext}`;
+    const {error:upErr}=await supabase.storage.from("contenido").upload(path,file,{upsert:true,contentType:file.type});
+    if(upErr){setMsg("Error al subir la foto: "+upErr.message);setUploading(u=>({...u,[id]:false}));return;}
+    const {data}=supabase.storage.from("contenido").getPublicUrl(path);
+    await supabase.from("admin_users").update({photo_url:`${data.publicUrl}?v=${Date.now()}`}).eq("id",id);
+    setUploading(u=>({...u,[id]:false}));
+    if(!silent){setMsg("Foto actualizada.");load();}
+  }
+  async function toggle(r,field){await supabase.from("admin_users").update({[field]:!(r[field]!==false)}).eq("id",r.id);load();}
+  async function del(r){
+    if(!confirm(`¿Quitar a ${r.name} del equipo? Perderá el acceso al panel admin.`))return;
+    const usadas=await supabase.from("companies").select("id",{count:"exact",head:true}).eq("referente_email",r.email);
+    if((usadas.count??0)>0){setMsg(`No se puede: ${r.name} es referente de ${usadas.count} empresa(s). Cambiá el referente primero.`);return;}
+    await supabase.from("admin_users").delete().eq("id",r.id);
+    const {data:res}=await supabase.functions.invoke("delete-user",{body:{email:r.email}});
+    setMsg(res?.purged?`${r.name} eliminado. Su cuenta de acceso también se borró.`:`${r.name} eliminado del equipo.`);
+    load();
+  }
+  return <div style={{padding:"24px 28px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"}}>
+    <Msg text={msg}/>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+      <div style={{fontSize:14,fontWeight:600,color:P.text}}>{rows.length} en el equipo</div>
+      <Btn onClick={()=>{ if(showForm){setShowForm(false);reset();} else {reset();setShowForm(true);} }}>+ Agregar miembro</Btn>
+    </div>
+    <div style={{fontSize:11,color:P.textMuted,marginBottom:16}}>Quienes están acá tienen acceso al panel admin. Los marcados como <b>referente</b> aparecen en el selector de referente de cada empresa y su ficha se muestra en el dash del cliente.</div>
+    {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44",marginBottom:16}}>
+      <div style={{fontSize:12,fontWeight:700,color:P.primary,marginBottom:10}}>{editingId?"Editar miembro":"Nuevo miembro"}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Input label="Email (acceso al admin)" value={form.email} onChange={v=>setForm({...form,email:v})} placeholder="nombre@tuterapia.com.uy"/>
+        <Input label="Nombre completo" value={form.name} onChange={v=>setForm({...form,name:v})} placeholder="ej. Florencia Iroldi"/>
+        <Input label="Nombre corto (se muestra en el dash)" value={form.short_name} onChange={v=>setForm({...form,short_name:v})} placeholder="ej. Flor"/>
+        <Input label="Rol" value={form.role} onChange={v=>setForm({...form,role:v})} placeholder="ej. Customer Success Manager"/>
+        <Input label="Iniciales" value={form.initials} onChange={v=>setForm({...form,initials:v})} placeholder="ej. FI"/>
+        <Input label="Área" value={form.area} onChange={v=>setForm({...form,area:v})} placeholder="ej. Gestión de cuentas"/>
+        <Input label="Teléfono" value={form.phone} onChange={v=>setForm({...form,phone:v})} placeholder="ej. 099495218"/>
+        <Input label="WhatsApp (con país, sin +)" value={form.whatsapp} onChange={v=>setForm({...form,whatsapp:v})} placeholder="ej. 598099495218"/>
+      </div>
+      <Input label="Link de agenda (opcional)" value={form.calendar_url} onChange={v=>setForm({...form,calendar_url:v})} placeholder="https://calendar.google.com/..."/>
+      <div style={{display:"flex",gap:16,alignItems:"center",margin:"4px 0 12px",flexWrap:"wrap"}}>
+        <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          📷 {form._photoFile?form._photoFile.name:"Seleccionar foto"}
+          <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_photoFile:e.target.files[0]})}/>
+        </label>
+        <label style={{fontSize:12,color:P.text,display:"inline-flex",alignItems:"center",gap:6}}>
+          <input type="checkbox" checked={form.is_referente} onChange={e=>setForm({...form,is_referente:e.target.checked})}/> Puede ser referente de empresas
+        </label>
+      </div>
+      <div style={{display:"flex",gap:8}}><Btn onClick={save}>{editingId?"Actualizar":"Guardar e invitar"}</Btn><Btn variant="secondary" onClick={()=>{setShowForm(false);reset();}}>Cancelar</Btn></div>
+    </Card>}
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {rows.length===0&&<Card><div style={{textAlign:"center",padding:"20px",color:P.textMuted}}>Sin miembros aún.</div></Card>}
+      {rows.map(r=><Card key={r.id} style={{opacity:r.active===false?0.55:1}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          {r.photo_url?<img src={r.photo_url} alt={r.name} style={{width:52,height:52,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>
+            :<div style={{width:52,height:52,borderRadius:"50%",background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <span style={{color:"#fff",fontWeight:700,fontSize:14}}>{r.initials||(r.name||"?").slice(0,2).toUpperCase()}</span>
+            </div>}
+          <div style={{flex:1,minWidth:180}}>
+            <div style={{fontSize:14,fontWeight:600,color:P.text}}>{r.name} {r.short_name&&<span style={{fontWeight:400,color:P.textMuted}}>· {r.short_name}</span>}</div>
+            <div style={{fontSize:12,color:P.textMuted}}>{r.role||"Sin rol"} · {r.email}</div>
+          </div>
+          <button onClick={()=>toggle(r,"is_referente")} style={{background:r.is_referente!==false?P.lighter:P.gray50,color:r.is_referente!==false?P.primary:P.textMuted,border:`1px solid ${r.is_referente!==false?P.primary+"55":P.border}`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{r.is_referente!==false?"✓ Referente":"No referente"}</button>
+          <button onClick={()=>toggle(r,"active")} style={{background:"none",border:`1px solid ${P.border}`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:600,color:P.textMuted,cursor:"pointer"}}>{r.active===false?"Inactivo":"Activo"}</button>
+          <label style={{background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+            {uploading[r.id]?"Subiendo...":r.photo_url?"✓ Cambiar foto":"⬆ Subir foto"}
+            <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadPhoto(r.id,e.target.files[0])}/>
+          </label>
+          <button onClick={()=>edit(r)} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:15}} title="Editar">✏️</button>
+          <button onClick={()=>del(r)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+        </div>
+      </Card>)}
+    </div>
+  </div>;
+}
+
 // ── TRACKING VIEW ──────────────────────────────────────────────────
 function TrackingView({ companies }) {
   const [views, setViews] = useState([]);
@@ -1615,6 +1726,7 @@ export default function Admin() {
         {active==="dashboard"&&<DashboardView companies={companies}/>}
         {active==="empresas"&&<EmpresasView companies={companies} reload={loadCompanies} onSelect={co=>{setSelectedCompany(co);setActive("empresas");}}/>}
         {active==="talleristas"&&<TalleristasView/>}
+        {active==="equipo"&&<EquipoView/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
       </div>
     </div>
