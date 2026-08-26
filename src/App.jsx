@@ -1411,7 +1411,20 @@ function EmpresasView({ companies, reload, onSelect }) {
     if(error) setMsg("Error: "+error.message);
     else{setMsg("Empresa creada. Ahora completá el plan (costos por sesión, límites, secciones visibles) en su pestaña Configuración.");setShowForm(false);reload();setForm(emptyForm);}
   }
-  async function del(id){if(!confirm("¿Eliminar empresa?"))return;await supabase.from("companies").delete().eq("id",id);reload();}
+  async function del(id){
+    const emp=companies.find(c=>c.id===id);
+    if(!confirm(`¿Eliminar ${emp?.name||"esta empresa"}?\n\nSe borran TODOS sus datos (sesiones, talleres, facturación, encuestas, usuarios) y sus archivos subidos. No se puede deshacer.`))return;
+    // Los datos de la base se van por cascada; los archivos de Storage hay que borrarlos aparte
+    for(const bucket of ["contenido","facturas","informes"]){
+      const {data:files}=await supabase.storage.from(bucket).list(id,{limit:1000});
+      const paths=(files||[]).filter(f=>f.id).map(f=>`${id}/${f.name}`);
+      if(paths.length) await supabase.storage.from(bucket).remove(paths);
+    }
+    const {error}=await supabase.from("companies").delete().eq("id",id);
+    if(error){setMsg("Error al eliminar: "+error.message);return;}
+    setMsg(`${emp?.name||"Empresa"} eliminada junto con todos sus datos y archivos.`);
+    reload();
+  }
   return <div style={{padding:"24px 28px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"}}>
     <Msg text={msg}/>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:18}}>
