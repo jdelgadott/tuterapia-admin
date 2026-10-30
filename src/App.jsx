@@ -87,8 +87,16 @@ function LoginView({ onLogin }) {
     // guarda todo en minúscula, pero admin_users se consultaba con match exacto.
     const em = email.trim().toLowerCase();
     const {data, error:authError} = await supabase.auth.signInWithPassword({email:em,password});
-    if(authError){ setError("Email o contraseña incorrectos."); setLoading(false); return; }
-    const {data:adminData} = await supabase.from("admin_users").select("*").eq("email",em).maybeSingle();
+    if(authError){
+      // Un 400/422 es credencial equivocada; cualquier otra cosa (red caída, base pausada)
+      // no lo es, y decir "contraseña incorrecta" manda a la gente a buscar donde no es.
+      const esCredencial = authError.status===400 || authError.status===422;
+      setError(esCredencial ? "Email o contraseña incorrectos."
+                            : "No pudimos conectar con el servidor. Probá de nuevo en un momento.");
+      setLoading(false); return;
+    }
+    const {data:adminData, error:adErr} = await supabase.from("admin_users").select("*").eq("email",em).maybeSingle();
+    if(adErr){ setError("No pudimos verificar tu acceso. Probá de nuevo en un momento."); setLoading(false); return; }
     if(!adminData){ await supabase.auth.signOut(); setError("No tenés acceso al panel admin."); setLoading(false); return; }
     onLogin(data.user, adminData);
     setLoading(false);
@@ -1704,12 +1712,17 @@ export default function Admin() {
   const [active, setActive] = useState("empresas");
   const [companies, setCompanies] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const [connError, setConnError] = useState(false);
 
   useEffect(()=>{
     supabase.auth.getSession().then(async({data:{session}})=>{
       if(session?.user){
-        const {data:ad}=await supabase.from("admin_users").select("*").eq("email",(session.user.email||"").trim().toLowerCase()).maybeSingle();
-        if(ad){setUser(session.user);setAdminData(ad);}
+        const {data:ad,error}=await supabase.from("admin_users").select("*").eq("email",(session.user.email||"").trim().toLowerCase()).maybeSingle();
+        // Solo deslogueamos si la consulta anduvo y el mail realmente no está en el equipo.
+        // Si falló (red caída o base pausada) la sesión sigue valiendo: antes esto sacaba
+        // a todo el mundo cada vez que Supabase se pausaba por inactividad.
+        if(error){setConnError(true);}
+        else if(ad){setUser(session.user);setAdminData(ad);}
         else{await supabase.auth.signOut();}
       }
       setLoading(false);
@@ -1721,6 +1734,22 @@ export default function Admin() {
   async function handleLogout(){await supabase.auth.signOut();setUser(null);setAdminData(null);}
 
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:P.bg,fontFamily:"system-ui,sans-serif",color:P.textMuted,fontSize:13}}>Cargando...</div>;
+  if(connError) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:P.bg,fontFamily:"system-ui,sans-serif",padding:24}}>
+      <div style={{background:P.white,borderRadius:16,border:`1px solid ${P.border}`,padding:"36px 32px",maxWidth:400,textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:12}}>🔌</div>
+        <div style={{fontSize:17,fontWeight:700,color:P.text,marginBottom:8}}>No pudimos conectar</div>
+        <div style={{fontSize:13,color:P.textMuted,lineHeight:1.6,marginBottom:22}}>
+          Tu sesión sigue abierta — es el servidor el que no está respondiendo.
+          Si el proyecto de Supabase se pausó por inactividad, hay que restaurarlo desde su panel.
+        </div>
+        <button onClick={()=>window.location.reload()}
+          style={{padding:"10px 22px",background:P.primary,color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          Reintentar
+        </button>
+      </div>
+    </div>
+  );
   if(!user) return <LoginView onLogin={(u,ad)=>{setUser(u);setAdminData(ad);}}/>;
 
   const titles={dashboard:"Dashboard",empresas:"Empresas",talleristas:"Talleristas",tracking:"Tracking"};
