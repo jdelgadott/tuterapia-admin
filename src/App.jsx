@@ -42,6 +42,7 @@ function Input({ label, value, onChange, placeholder, type="text", style={} }) {
   return <div style={{marginBottom:12,...style}}>
     {label&&<label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>}
     <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      {...(type==="email"?{autoCapitalize:"none",autoCorrect:"off",spellCheck:false,autoComplete:"email"}:{})}
       style={{width:"100%",padding:"8px 12px",border:`1px solid ${P.border}`,borderRadius:8,fontSize:13,color:P.text,outline:"none",boxSizing:"border-box",background:P.white}}/>
   </div>;
 }
@@ -82,9 +83,12 @@ function LoginView({ onLogin }) {
   async function handleLogin() {
     if(!email||!password){ setError("Completá email y contraseña."); return; }
     setLoading(true); setError("");
-    const {data, error:authError} = await supabase.auth.signInWithPassword({email,password});
+    // El mail se normaliza: el teclado del celular capitaliza la primera letra y Auth
+    // guarda todo en minúscula, pero admin_users se consultaba con match exacto.
+    const em = email.trim().toLowerCase();
+    const {data, error:authError} = await supabase.auth.signInWithPassword({email:em,password});
     if(authError){ setError("Email o contraseña incorrectos."); setLoading(false); return; }
-    const {data:adminData} = await supabase.from("admin_users").select("*").eq("email",email).single();
+    const {data:adminData} = await supabase.from("admin_users").select("*").eq("email",em).maybeSingle();
     if(!adminData){ await supabase.auth.signOut(); setError("No tenés acceso al panel admin."); setLoading(false); return; }
     onLogin(data.user, adminData);
     setLoading(false);
@@ -657,7 +661,9 @@ function UsuariosTab({ company }) {
   async function invite() {
     if(!form.email||!form.full_name){setMsg("Email y nombre obligatorios.");return;}
     setLoading(true);setMsg("");
-    const {error:e2,data:inserted}=await supabase.from("company_users").insert([{company_id:company.id,email:form.email,full_name:form.full_name,role:form.role,active:true}]).select().single();
+    // Siempre en minúscula: el login busca el mail exacto y Auth lo guarda normalizado.
+    const em=form.email.trim().toLowerCase();
+    const {error:e2,data:inserted}=await supabase.from("company_users").insert([{company_id:company.id,email:em,full_name:form.full_name,role:form.role,active:true}]).select().single();
     if(e2){setMsg("Error: "+e2.message);setLoading(false);return;}
     await savePerms(inserted.id,formPerms);
     // Call Edge Function to send invite
@@ -665,7 +671,7 @@ function UsuariosTab({ company }) {
     const res=await fetch("https://cdzvjueschflpkxlozby.supabase.co/functions/v1/invite-user",{
       method:"POST",
       headers:{"Content-Type":"application/json","Authorization":`Bearer ${session?.access_token}`},
-      body:JSON.stringify({email:form.email,company_id:company.id,full_name:form.full_name,role:form.role})
+      body:JSON.stringify({email:em,company_id:company.id,full_name:form.full_name,role:form.role})
     });
     const result=await res.json();
     if(result.error) setMsg(`${form.full_name} agregado. Mail: ${result.error}`);
@@ -1702,7 +1708,7 @@ export default function Admin() {
   useEffect(()=>{
     supabase.auth.getSession().then(async({data:{session}})=>{
       if(session?.user){
-        const {data:ad}=await supabase.from("admin_users").select("*").eq("email",session.user.email).single();
+        const {data:ad}=await supabase.from("admin_users").select("*").eq("email",(session.user.email||"").trim().toLowerCase()).maybeSingle();
         if(ad){setUser(session.user);setAdminData(ad);}
         else{await supabase.auth.signOut();}
       }
