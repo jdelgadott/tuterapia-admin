@@ -172,3 +172,11 @@ commit;
 --   select table_name from information_schema.tables where table_schema='public'
 --     and table_name in ('sessions_by_coupon','encuesta_popup','reuniones_semestrales','content_feedback','sync_runs');
 --   select name, visible_modules from companies order by name;
+
+-- ── 9. Un voto por persona y por contenido (aplicado aparte el 3 nov 2026) ──
+-- Migración `content_feedback_un_voto_por_persona`. Se agregó después de conectar el
+-- insert en el dash: hasta entonces el anti-duplicado era solo de la interfaz.
+alter table public.content_feedback
+  drop constraint if exists content_feedback_un_voto_por_persona;
+alter table public.content_feedback
+  add constraint content_feedback_un_voto_por_persona unique (content_id, user_email);
