@@ -1,7 +1,12 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Rediseño del dash de empresas (nov 2026)
--- TODO ES ADITIVO: no se borra ni se renombra nada que use producción hoy.
--- Aplicar ANTES de publicar el admin y el dash nuevos. Revisado por: ______
+-- APLICADO EN PRODUCCIÓN EL 3 NOV 2026 (migración `rediseno_dash_2026`).
+--
+-- Los pasos 1 a 7 son aditivos: no borran ni renombran nada.
+-- El paso 8 NO lo es: pisa `companies.visible_modules`. El segundo update reemplaza
+-- el array de `gestion` entero por ["Resumen"], así que se pierde lo que hubiera.
+-- Antes de correrlo conviene sacar copia: select id, name, visible_modules from companies;
+-- (al aplicarlo, el único afectado fue Greycon: ["Facturación"] → ["Resumen"]).
 -- ════════════════════════════════════════════════════════════════════════════
 
 begin;

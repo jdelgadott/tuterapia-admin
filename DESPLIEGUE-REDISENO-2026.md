@@ -24,9 +24,10 @@ Lo que sí falta, para que el botón de recordatorio vuelva a funcionar:
 
 Hasta que esté la clave nueva, el botón "✉ Recordatorio" va a dar error. Ya no manda nada desde el navegador: llama a la Edge Function, que valida contra `admin_users` y arma el mail con datos de la base.
 
-### 1. Base de datos (Supabase)
-SQL Editor → pegar `supabase/20261103_rediseno_dash.sql` → Run. Al final del archivo hay dos consultas para verificar.
-Se puede correr dos veces sin problema.
+### 1. Base de datos (Supabase) — ✅ hecho (3 nov 2026)
+Aplicada como migración `rediseno_dash_2026`. Verificado: las seis tablas nuevas existen, todas con RLS y sus políticas; las columnas nuevas están en `workshops`, `workshops_recommended` y `content`; el linter de seguridad no tiró nada nuevo.
+
+El paso 8 tocó datos: las once empresas sumaron "Motivos de consulta" a Colaboradores, y Greycon pasó Gestión de `["Facturación"]` a `["Resumen"]`. Era el único con Gestión configurada.
 
 ### 2. Admin — ✅ hecho (3 nov 2026)
 El parche ya está aplicado y commiteado en la rama `rediseno-2026` de este repo. El build de Vite pasa limpio.
