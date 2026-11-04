@@ -25,8 +25,11 @@ Deno.serve(async (req) => {
     const { data: bill } = await admin.from("billing").select("id, period, amount, status, company_id").eq("id", billing_id).maybeSingle();
     if (!bill) return json({ error: "Factura no encontrada" }, 404);
     if (bill.status === "pagado") return json({ error: "La factura ya está paga" }, 400);
-    const { data: co } = await admin.from("companies").select("referente_email").eq("id", bill.company_id).maybeSingle();
-    if (!co?.referente_email) return json({ error: "La empresa no tiene referente asignado" }, 400);
+    // El recordatorio va al contacto de facturación de la EMPRESA (billing_email).
+    // referente_email es el referente de Tu Terapia: va solo como responder-a, para que la
+    // respuesta del cliente le llegue a quien lleva la cuenta y no a un noreply.
+    const { data: co } = await admin.from("companies").select("billing_email, referente_email").eq("id", bill.company_id).maybeSingle();
+    if (!co?.billing_email) return json({ error: "La empresa no tiene cargado el mail de facturación (Configuración)" }, 400);
 
     // Decirlo claro: sin esto el error seria "Resend rechazo el envio" y mandaria a buscar donde no es.
     const resendKey = Deno.env.get("RESEND_API_KEY");
@@ -38,7 +41,8 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendKey}` },
       body: JSON.stringify({
         from: "noreply@tuterapia-empresas.com",
-        to: co.referente_email,
+        to: co.billing_email,
+        ...(co.referente_email ? { reply_to: co.referente_email } : {}),
         subject: `Recordatorio de pago — ${bill.period} · Tu Terapia`,
         html: `<p>Te recordamos que la factura del período <b>${bill.period}</b> por <b>UY$ ${monto}</b> está pendiente de pago.</p><p>Podés verla desde <a href="https://tuterapia-empresas.com">tu panel de bienestar</a>.</p><p>El equipo de Tu Terapia</p>`,
       }),

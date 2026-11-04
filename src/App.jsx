@@ -330,6 +330,7 @@ function ConfigTab({ company, reload }) {
     start_date:company.start_date||"", renewal:company.renewal||"",
     workshop_target:company.workshop_target||5,
     contact_name:company.contact_name||"",
+    billing_email:company.billing_email||"",
     consultoria_activa:company.consultoria_activa||false,
     consultoria_solicitada:company.consultoria_solicitada||false,
     encuesta_frecuencia:company.encuesta_frecuencia||"trimestral",
@@ -380,6 +381,8 @@ function ConfigTab({ company, reload }) {
       headcount_total: parseInt(form.headcount_total)||null,
       headcount_leaders: parseInt(form.headcount_leaders)||null,
       workshop_target: parseInt(form.workshop_target)||5,
+      // Vacío tiene que viajar como null: la base valida el formato del mail y "" no pasa.
+      billing_email: (form.billing_email||"").trim().toLowerCase()||null,
       visible_modules: visible_modules,
     }).eq("id",company.id);
     if(error) setMsg("Error: "+error.message);
@@ -406,6 +409,7 @@ function ConfigTab({ company, reload }) {
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
       <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
+      <Input label="Mail de facturación del cliente (recibe los recordatorios de pago)" value={form.billing_email} onChange={v=>setForm({...form,billing_email:v})} placeholder="ej. administracion@empresa.com"/>
       <Select label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})} options={referentes}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
@@ -1665,7 +1669,9 @@ function FacturacionTab({ companyId, company }) {
   }
   async function togglePaid(r){await supabase.from("billing").update({status:r.status==="pagado"?"pendiente":"pagado"}).eq("id",r.id);load();}
   async function sendReminder(r){
-    if(!company?.referente_email){setMsg("Esta empresa no tiene referente asignado.");return;}
+    // El recordatorio va al CLIENTE, no al referente de TT. Si falta el mail se avisa y no
+    // se manda nada: caer al referente sería mandarle a Flor un mail que dice "pagá tu factura".
+    if(!company?.billing_email){setMsg("Falta el mail de facturación del cliente. Cargalo en Configuración.");return;}
     try{
       // El mail lo manda el servidor (Edge Function): la clave de Resend nunca va en el navegador
       const {data:res,error:fnErr}=IS_PREVIEW?{data:{ok:true},error:null}:await supabase.functions.invoke("enviar-recordatorio",{body:{billing_id:r.id}});
@@ -1677,7 +1683,7 @@ function FacturacionTab({ companyId, company }) {
         setMsg(detalle?`No se pudo enviar: ${detalle}`:"Error enviando recordatorio.");
         return;
       }
-      setMsg(`Recordatorio enviado a ${company.referente_email}`);
+      setMsg(`Recordatorio enviado a ${company.billing_email}`);
     }catch(e){setMsg(`Error enviando recordatorio: ${e?.message||e}`);}
   }
   async function del(id){await supabase.from("billing").delete().eq("id",id);load();}
