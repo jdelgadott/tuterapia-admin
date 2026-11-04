@@ -1669,9 +1669,16 @@ function FacturacionTab({ companyId, company }) {
     try{
       // El mail lo manda el servidor (Edge Function): la clave de Resend nunca va en el navegador
       const {data:res,error:fnErr}=IS_PREVIEW?{data:{ok:true},error:null}:await supabase.functions.invoke("enviar-recordatorio",{body:{billing_id:r.id}});
-      if(fnErr||res?.error){setMsg("Error enviando recordatorio.");return;}
+      if(fnErr||res?.error){
+        // El motivo real viaja en el cuerpo de la respuesta: fnErr.message solo dice
+        // "non-2xx status code", que no le sirve a nadie para saber qué hay que arreglar.
+        let detalle=res?.error||"";
+        if(!detalle&&fnErr?.context){ try{ detalle=(await fnErr.context.json())?.error||""; }catch{ detalle=""; } }
+        setMsg(detalle?`No se pudo enviar: ${detalle}`:"Error enviando recordatorio.");
+        return;
+      }
       setMsg(`Recordatorio enviado a ${company.referente_email}`);
-    }catch(e){setMsg("Error enviando recordatorio.");}
+    }catch(e){setMsg(`Error enviando recordatorio: ${e?.message||e}`);}
   }
   async function del(id){await supabase.from("billing").delete().eq("id",id);load();}
   return <div style={{padding:"20px 24px"}}>
