@@ -1,6 +1,7 @@
 // Edge Function: manda el recordatorio de pago de una factura.
 // Reemplaza el envío que hacía el admin desde el navegador con la clave de Resend escrita en el código.
-// Secretos (Supabase → Edge Functions → Secrets): RESEND_API_KEY (la NUEVA, después de revocar la expuesta).
+// Secretos (Supabase → Edge Functions → Secrets): RESEND_API_KEY.
+// (La clave vieja que estaba en el código ya no sirve: Resend la rechaza. No hay que revocar nada.)
 // SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los provee Supabase automáticamente.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -27,10 +28,14 @@ Deno.serve(async (req) => {
     const { data: co } = await admin.from("companies").select("referente_email").eq("id", bill.company_id).maybeSingle();
     if (!co?.referente_email) return json({ error: "La empresa no tiene referente asignado" }, 400);
 
+    // Decirlo claro: sin esto el error seria "Resend rechazo el envio" y mandaria a buscar donde no es.
+    const resendKey = Deno.env.get("RESEND_API_KEY");
+    if (!resendKey) return json({ error: "Falta configurar RESEND_API_KEY en los secrets de Supabase" }, 500);
+
     const monto = new Intl.NumberFormat("es-UY").format(bill.amount || 0);
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("RESEND_API_KEY")}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendKey}` },
       body: JSON.stringify({
         from: "noreply@tuterapia-empresas.com",
         to: co.referente_email,
@@ -38,7 +43,11 @@ Deno.serve(async (req) => {
         html: `<p>Te recordamos que la factura del período <b>${bill.period}</b> por <b>UY$ ${monto}</b> está pendiente de pago.</p><p>Podés verla desde <a href="https://tuterapia-empresas.com">tu panel de bienestar</a>.</p><p>El equipo de Tu Terapia</p>`,
       }),
     });
-    if (!r.ok) return json({ error: "Resend rechazó el envío" }, 502);
+    // El motivo queda en los logs de la función (no se devuelve al navegador, por las dudas).
+    if (!r.ok) {
+      console.error("resend", r.status, await r.text().catch(() => ""));
+      return json({ error: `Resend rechazó el envío (${r.status}). El motivo está en los logs de la función.` }, 502);
+    }
     return json({ ok: true });
   } catch (_e) {
     return json({ error: "Error inesperado" }, 500);
