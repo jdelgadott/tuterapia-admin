@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabase.js";
+// Solo en la vista previa (build de prueba con datos de ejemplo): nada sale hacia servicios reales
+/* global __PREVIEW__ */
+const IS_PREVIEW = typeof __PREVIEW__!=="undefined" && __PREVIEW__;
 
 const P = {
   primary:"#1A5C4A", light:"#2D9977", lighter:"#E6F4F0", bg:"#F5F7F6",
@@ -131,6 +134,7 @@ function Sidebar({ active, setActive, adminName, onLogout }) {
     {id:"talleristas",icon:"🎤",label:"Talleristas"},
     {id:"equipo",    icon:"👥", label:"Equipo TT"},
     {id:"tracking",  icon:"📈", label:"Tracking"},
+    {id:"sync",      icon:"🔄", label:"Sincronización"},
   ];
   return (
     <div style={{width:210,background:P.sidebarBg,minHeight:"100vh",display:"flex",flexDirection:"column",flexShrink:0,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",borderRight:`1px solid ${P.sidebarBorder}`}}>
@@ -306,10 +310,10 @@ const PLAN_KINDS = [
 const PLAN_KIND_LABELS = {cuponera_fija:"Cuponera Fija", fee_fijo:"Fee Fijo Mensual", a_demanda:"A Demanda"};
 // Deben coincidir con MODULES del dashboard (ids y nombres de subpestañas)
 const ALL_MODULES = [
-  {id:"individual", label:"Colaboradores",           subs:["Sesiones","Adherencia"]},
+  {id:"individual", label:"Colaboradores",           subs:["Sesiones","Adherencia","Motivos de consulta"]},
   {id:"colectivo",  label:"Cultura de Bienestar",    subs:["Talleres","Contenido"]},
   {id:"estrategico",label:"Estrategia de Bienestar", subs:["Bienestar del equipo","Consultoría Tu Terapia"]},
-  {id:"gestion",    label:"Gestión",                 subs:["Facturación","Plan activo","Equipo TT"]},
+  {id:"gestion",    label:"Gestión",                 subs:["Resumen"]},
 ];
 const FULL_VISIBILITY = Object.fromEntries(ALL_MODULES.map(m=>[m.id,m.subs]));
 
@@ -326,6 +330,7 @@ function ConfigTab({ company, reload }) {
     start_date:company.start_date||"", renewal:company.renewal||"",
     workshop_target:company.workshop_target||5,
     contact_name:company.contact_name||"",
+    billing_email:company.billing_email||"",
     consultoria_activa:company.consultoria_activa||false,
     consultoria_solicitada:company.consultoria_solicitada||false,
     encuesta_frecuencia:company.encuesta_frecuencia||"trimestral",
@@ -376,6 +381,8 @@ function ConfigTab({ company, reload }) {
       headcount_total: parseInt(form.headcount_total)||null,
       headcount_leaders: parseInt(form.headcount_leaders)||null,
       workshop_target: parseInt(form.workshop_target)||5,
+      // Vacío tiene que viajar como null: la base valida el formato del mail y "" no pasa.
+      billing_email: (form.billing_email||"").trim().toLowerCase()||null,
       visible_modules: visible_modules,
     }).eq("id",company.id);
     if(error) setMsg("Error: "+error.message);
@@ -396,12 +403,13 @@ function ConfigTab({ company, reload }) {
       {k==="a_demanda"&&<Input label="Tope mensual (sesiones, vacío = sin tope)" value={form.monthly_cap} onChange={v=>setForm({...form,monthly_cap:v})} type="number"/>}
       <Input label="Límite de sesiones por colaborador (vacío = sin límite)" value={form.user_session_limit} onChange={v=>setForm({...form,user_session_limit:v})} type="number"/>
       <Input label="Límite por colaborador por MES (vacío = sin límite)" value={form.user_monthly_limit} onChange={v=>setForm({...form,user_monthly_limit:v})} type="number"/>
-      <Input label="Dotación total (para control de encuestas)" value={form.headcount_total} onChange={v=>setForm({...form,headcount_total:v})} type="number"/>
+      <Input label="Nómina: colaboradores en total (cobertura y encuestas)" value={form.headcount_total} onChange={v=>setForm({...form,headcount_total:v})} type="number"/>
       <Input label="Cantidad de líderes/mandos medios" value={form.headcount_leaders} onChange={v=>setForm({...form,headcount_leaders:v})} type="number"/>
       <Input label="Inicio" value={form.start_date} onChange={v=>setForm({...form,start_date:v})} placeholder="ej. Julio 2025"/>
       <Input label="Renovación" value={form.renewal} onChange={v=>setForm({...form,renewal:v})} placeholder="ej. Jul 2026"/>
       <Input label="Target talleres/año" value={form.workshop_target} onChange={v=>setForm({...form,workshop_target:v})} type="number"/>
       <Input label="Contacto RRHH" value={form.contact_name} onChange={v=>setForm({...form,contact_name:v})}/>
+      <Input label="Mail de facturación del cliente (recibe los recordatorios de pago)" value={form.billing_email} onChange={v=>setForm({...form,billing_email:v})} placeholder="ej. administracion@empresa.com"/>
       <Select label="Referente TT" value={form.referente_email} onChange={v=>setForm({...form,referente_email:v})} options={referentes}/>
       <Select label="Frecuencia encuestas" value={form.encuesta_frecuencia} onChange={v=>setForm({...form,encuesta_frecuencia:v})} options={[{value:"trimestral",label:"Trimestral"},{value:"semestral",label:"Semestral"},{value:"anual",label:"Anual"}]}/>
     </div>
@@ -441,10 +449,11 @@ function ConfigTab({ company, reload }) {
       </div>
       {form.visible_modules&&<button onClick={()=>setForm({...form,visible_modules:null})} style={{marginTop:10,background:"none",border:"none",fontSize:11,color:P.accent,cursor:"pointer",padding:0,fontWeight:600}}>Volver a mostrar todo (default)</button>}
     </div>
+    <CuponesEmpresa companyId={company.id}/>
     <div style={{display:"flex",alignItems:"center",gap:16,padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
       <div style={{flex:1}}>
         <div style={{fontSize:13,fontWeight:600,color:P.text}}>Consultoría Estratégica</div>
-        <div style={{fontSize:11,color:P.textMuted}}>Activa el Índice Tu Terapia y el análisis de inversión en el dashboard</div>
+        <div style={{fontSize:11,color:P.textMuted}}>Se activa cuando la empresa se suma a la encuesta semestral. Mientras está inactiva, el dash la muestra borrosa con el botón para pedirla.</div>
         {form.consultoria_solicitada&&!form.consultoria_activa&&<div style={{fontSize:11,color:P.accent,marginTop:2}}>⏳ Solicitud pendiente del cliente</div>}
       </div>
       <button onClick={()=>setForm({...form,consultoria_activa:!form.consultoria_activa})}
@@ -567,6 +576,7 @@ function SesionesTab({ companyId, planKind }) {
   }
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
+    <SesionesPorCupon companyId={companyId}/>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <div style={{fontSize:13,color:P.textMuted}}>{rows.length} meses cargados
         {!isCuponera&&<div style={{fontSize:11,color:P.accent,marginTop:3}}>ℹ️ Se usa el mismo template para todos los planes. Para esta empresa ({planKind==="fee_fijo"?"Fee Mensual":"A Demanda"}) completá solo <b>Canjeadas</b>, Nuevos, Activos, Total histórico y Primera vez — las columnas Realizadas y Tasa se dejan vacías.</div>}
@@ -676,12 +686,12 @@ function UsuariosTab({ company }) {
     await savePerms(inserted.id,formPerms);
     // Call Edge Function to send invite
     const {data:{session}}=await supabase.auth.getSession();
-    const res=await fetch("https://cdzvjueschflpkxlozby.supabase.co/functions/v1/invite-user",{
+    // En la vista previa nunca se manda una invitación real
+    const result=IS_PREVIEW?{preview:true}:await (await fetch("https://cdzvjueschflpkxlozby.supabase.co/functions/v1/invite-user",{
       method:"POST",
       headers:{"Content-Type":"application/json","Authorization":`Bearer ${session?.access_token}`},
       body:JSON.stringify({email:em,company_id:company.id,full_name:form.full_name,role:form.role})
-    });
-    const result=await res.json();
+    })).json();
     if(result.error) setMsg(`${form.full_name} agregado. Mail: ${result.error}`);
     else if(result.existing) setMsg(`${form.full_name} ya tenía cuenta de Tu Terapia: se le dio acceso a esta empresa. Entra con su contraseña de siempre (sin nueva invitación).`);
     else setMsg(`Invitación enviada a ${form.email}.`);
@@ -762,111 +772,396 @@ function UsuariosTab({ company }) {
   </div>;
 }
 
+// ── BLOQUES NUEVOS DEL REDISEÑO 2026 ───────────────────────────────
+// Confirmación: en la vista previa no hay diálogos del navegador, así que se da por confirmada
+const ask=(m)=>IS_PREVIEW||window.confirm(m);
+const MES_ABBR=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+// Configuración → qué cupones de la plataforma son de esta empresa (los usa la sincronización)
+function CuponesEmpresa({ companyId }) {
+  const [rows, setRows] = useState([]);
+  const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ load(); },[companyId]);
+  async function load(){const {data}=await supabase.from("company_coupons").select("*").eq("company_id",companyId).order("created_at");setRows(data||[]);}
+  async function add(){
+    const c=code.trim(); if(!c){setMsg("Escribí el código del cupón tal cual está en la plataforma.");return;}
+    const {error}=await supabase.from("company_coupons").insert([{company_id:companyId,coupon_code:c,label:label.trim()||null}]);
+    if(error) setMsg(error.message.includes("duplicate")||error.code==="23505"?"Ese cupón ya está asignado a otra empresa.":"Error: "+error.message);
+    else{setMsg("");setCode("");setLabel("");load();}
+  }
+  async function del(id){if(!ask("¿Quitar este cupón? La sincronización deja de contar sus sesiones para esta empresa."))return;await supabase.from("company_coupons").delete().eq("id",id);load();}
+  return <div style={{padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
+    <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Cupones de la plataforma</div>
+    <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Las sesiones pagadas con estos cupones se cuentan para esta empresa. En el dash, cada cupón tiene su color en la barra de sesiones.</div>
+    {msg&&<div style={{fontSize:11,color:P.red,marginBottom:8}}>{msg}</div>}
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+      {rows.length===0&&<span style={{fontSize:12,color:P.accent}}>Sin cupones: la sincronización no puede traer datos de esta empresa.</span>}
+      {rows.map(r=><span key={r.id} style={{display:"inline-flex",alignItems:"center",gap:6,background:P.white,border:`1px solid ${P.border}`,borderRadius:20,padding:"4px 6px 4px 12px",fontSize:12}}>
+        <b style={{color:P.text}}>{r.coupon_code}</b>{r.label&&<span style={{color:P.textMuted}}>· {r.label}</span>}
+        <button onClick={()=>del(r.id)} title="Quitar" style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
+      </span>)}
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{width:200}}><Input label="Código" value={code} onChange={setCode} placeholder="ej. #bienestarbc"/></div>
+      <div style={{width:200}}><Input label="Para qué es (opcional)" value={label} onChange={setLabel} placeholder="ej. caso particular"/></div>
+      <div style={{marginBottom:12}}><Btn small onClick={add}>+ Agregar cupón</Btn></div>
+    </div>
+  </div>;
+}
+
+// Sesiones → detalle por cupón de cada mes (lo llena la sincronización; se puede corregir a mano)
+function SesionesPorCupon({ companyId }) {
+  const [rows, setRows] = useState([]);
+  const [codes, setCodes] = useState([]);
+  const [form, setForm] = useState({month:MES_ABBR[new Date().getMonth()],year:new Date().getFullYear(),coupon_code:"",sessions:""});
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ load(); },[companyId]);
+  async function load(){
+    const {data}=await supabase.from("sessions_by_coupon").select("*").eq("company_id",companyId);setRows(data||[]);
+    const {data:cc}=await supabase.from("company_coupons").select("coupon_code").eq("company_id",companyId);setCodes((cc||[]).map(c=>c.coupon_code));
+  }
+  async function save(){
+    if(!form.coupon_code||form.sessions===""){setMsg("Elegí el cupón y cargá las sesiones.");return;}
+    const {error}=await supabase.from("sessions_by_coupon").upsert([{company_id:companyId,month:form.month,year:parseInt(form.year),coupon_code:form.coupon_code,sessions:parseInt(form.sessions)||0,source:"manual"}],{onConflict:"company_id,month,year,coupon_code"});
+    if(error) setMsg("Error: "+error.message); else{setMsg("Guardado.");load();}
+  }
+  async function del(id){if(!ask("¿Borrar este dato?"))return;await supabase.from("sessions_by_coupon").delete().eq("id",id);load();}
+  const months=[...new Set(rows.map(r=>`${r.month} ${r.year}`))].sort((a,b)=>{const [ma,ya]=a.split(" "),[mb,yb]=b.split(" ");return (yb*100+MES_ABBR.indexOf(mb))-(ya*100+MES_ABBR.indexOf(ma));}).slice(0,12);
+  const allCodes=[...new Set([...codes,...rows.map(r=>r.coupon_code)])];
+  return <Card>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div><div style={{fontSize:13,fontWeight:600,color:P.text}}>Sesiones por cupón</div><div style={{fontSize:11,color:P.textMuted}}>Lo completa la sincronización con la plataforma. Corregí acá solo si un mes vino mal.</div></div>
+      <Btn small variant="secondary" onClick={()=>setOpen(!open)}>{open?"Cerrar":"Corregir a mano"}</Btn>
+    </div>
+    {open&&<div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginTop:10}}>
+      <div style={{width:100}}><Select label="Mes" value={form.month} onChange={v=>setForm({...form,month:v})} options={MES_ABBR.map(m=>({value:m,label:m}))}/></div>
+      <div style={{width:90}}><Input label="Año" value={form.year} onChange={v=>setForm({...form,year:v})} type="number"/></div>
+      <div style={{width:180}}><Select label="Cupón" value={form.coupon_code} onChange={v=>setForm({...form,coupon_code:v})} options={[{value:"",label:"— Elegí —"},...allCodes.map(c=>({value:c,label:c}))]}/></div>
+      <div style={{width:100}}><Input label="Sesiones" value={form.sessions} onChange={v=>setForm({...form,sessions:v})} type="number"/></div>
+      <div style={{marginBottom:12}}><Btn small onClick={save}>Guardar</Btn></div>
+    </div>}
+    {msg&&<div style={{fontSize:11,color:P.accent,marginTop:6}}>{msg}</div>}
+    {months.length===0?<div style={{fontSize:12,color:P.textMuted,marginTop:10}}>Todavía no hay sesiones por cupón.</div>:
+    <div style={{overflowX:"auto",marginTop:10}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+      <thead><tr>{["Mes",...allCodes].map(h=><th key={h} style={{textAlign:"left",padding:"6px 8px",color:P.textMuted,fontSize:10.5,textTransform:"uppercase",letterSpacing:"0.04em",borderBottom:`1px solid ${P.border}`}}>{h}</th>)}</tr></thead>
+      <tbody>{months.map(m=>{const [mo,yr]=m.split(" ");return <tr key={m} style={{borderBottom:`1px solid ${P.border}`}}>
+        <td style={{padding:"6px 8px",fontWeight:600,color:P.text}}>{m}</td>
+        {allCodes.map(cd=>{const r=rows.find(x=>x.month===mo&&String(x.year)===yr&&x.coupon_code===cd);return <td key={cd} style={{padding:"6px 8px",color:P.text}}>
+          {r?<>{r.sessions}{r.source==="manual"&&<span title="Cargado a mano" style={{color:P.accent,marginLeft:4}}>✎</span>}<button onClick={()=>del(r.id)} title="Borrar" style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:11,marginLeft:4}}>✕</button></>:<span style={{color:P.textMuted}}>—</span>}
+        </td>;})}
+      </tr>;})}</tbody>
+    </table></div>}
+  </Card>;
+}
+
+// Encuestas → resultados de la encuesta emergente por cupón (dentro de la plataforma)
+function EncuestaPopupAdmin({ companyId }) {
+  const [rows, setRows] = useState([]);
+  const sem=(d=new Date())=>`S${d.getMonth()<6?1:2} ${d.getFullYear()}`;
+  const [form, setForm] = useState({period:sem(),n:"",mejoro_trabajo:"",recomendaria:"",no_habria_consultado:""});
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ load(); },[companyId]);
+  async function load(){const {data}=await supabase.from("encuesta_popup").select("*").eq("company_id",companyId).order("period",{ascending:false});setRows(data||[]);}
+  async function save(){
+    const nums=["mejoro_trabajo","recomendaria","no_habria_consultado"].map(k=>parseFloat(String(form[k]).replace(",",".")));
+    if(!/^S[12] \d{4}$/.test(form.period.trim())){setMsg("El período va como S1 2026 o S2 2026.");return;}
+    if(!(parseInt(form.n)>0)||nums.some(v=>isNaN(v)||v<0||v>100)){setMsg("Cargá la cantidad de respuestas y los tres porcentajes (0 a 100).");return;}
+    const {error}=await supabase.from("encuesta_popup").upsert([{company_id:companyId,period:form.period.trim(),n:parseInt(form.n),mejoro_trabajo:nums[0],recomendaria:nums[1],no_habria_consultado:nums[2],source:"manual"}],{onConflict:"company_id,period"});
+    if(error) setMsg("Error: "+error.message); else{setMsg("Guardado.");load();}
+  }
+  async function del(id){if(!ask("¿Borrar estos resultados?"))return;await supabase.from("encuesta_popup").delete().eq("id",id);load();}
+  return <div style={{marginBottom:20}}>
+    <SectionTitle>Encuesta emergente en la plataforma (quienes usan el beneficio)</SectionTitle>
+    <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Se muestra arriba de todo en Estrategia → Bienestar del equipo, y el "no habría consultado" también en Consultoría.</div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{width:110}}><Input label="Período" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="S2 2026"/></div>
+      <div style={{width:110}}><Input label="Respuestas" value={form.n} onChange={v=>setForm({...form,n:v})} type="number"/></div>
+      <div style={{width:150}}><Input label="% mejoró en el trabajo" value={form.mejoro_trabajo} onChange={v=>setForm({...form,mejoro_trabajo:v})}/></div>
+      <div style={{width:130}}><Input label="% lo recomendaría" value={form.recomendaria} onChange={v=>setForm({...form,recomendaria:v})}/></div>
+      <div style={{width:170}}><Input label="% no habría consultado" value={form.no_habria_consultado} onChange={v=>setForm({...form,no_habria_consultado:v})}/></div>
+      <div style={{marginBottom:12}}><Btn small onClick={save}>Guardar</Btn></div>
+    </div>
+    {msg&&<div style={{fontSize:11,color:P.accent,marginBottom:8}}>{msg}</div>}
+    {rows.map(r=><div key={r.id} style={{display:"flex",gap:14,alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:`1px solid ${P.border}`,flexWrap:"wrap"}}>
+      <b style={{color:P.text,width:70}}>{r.period}</b><span style={{color:P.textMuted}}>{r.n} respuestas</span>
+      <span>{r.mejoro_trabajo}% mejoró</span><span>{r.recomendaria}% recomendaría</span><span>{r.no_habria_consultado}% no habría consultado</span>
+      <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",marginLeft:"auto"}}>🗑</button>
+    </div>)}
+  </div>;
+}
+
+// Encuestas → reunión semestral de resultados + informe descargable (Consultoría)
+function ReunionesSemestrales({ companyId }) {
+  const [rows, setRows] = useState([]);
+  const sem=(d=new Date())=>`S${d.getMonth()<6?1:2} ${d.getFullYear()}`;
+  const [form, setForm] = useState({period:sem(),date:"",time:"",minutes_url:"",report_url:"",_report:null});
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ load(); },[companyId]);
+  async function load(){const {data}=await supabase.from("reuniones_semestrales").select("*").eq("company_id",companyId).order("period",{ascending:false});setRows(data||[]);}
+  async function save(){
+    if(!/^S[12] \d{4}$/.test(form.period.trim())){setMsg("El semestre va como S1 2026 o S2 2026.");return;}
+    const payload={company_id:companyId,period:form.period.trim(),date:form.date||null,time:form.time||null,minutes_url:form.minutes_url.trim()||null,report_url:form.report_url.trim()||null};
+    const {data:saved,error}=await supabase.from("reuniones_semestrales").upsert([payload],{onConflict:"company_id,period"}).select().single();
+    if(error){setMsg("Error: "+error.message);return;}
+    if(form._report){const u=await uploadTo("informes",`${companyId}/semestral-${payload.period.replace(" ","-")}.pdf`,form._report); if(u) await supabase.from("reuniones_semestrales").update({report_url:u}).eq("id",saved.id);}
+    setMsg("Guardado.");setForm({period:sem(),date:"",time:"",minutes_url:"",report_url:"",_report:null});load();
+  }
+  async function del(id){if(!ask("¿Borrar esta reunión?"))return;await supabase.from("reuniones_semestrales").delete().eq("id",id);load();}
+  return <div style={{marginBottom:20}}>
+    <SectionTitle>Reunión semestral e informe de resultados</SectionTitle>
+    <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Aparece en Consultoría, en la tarjeta de cada semestre. Sin fecha, el dash muestra el botón para agendar con la referente.</div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{width:110}}><Input label="Semestre" value={form.period} onChange={v=>setForm({...form,period:v})} placeholder="S1 2026"/></div>
+      <div style={{width:150}}><Input label="Fecha de la reunión" value={form.date} onChange={v=>setForm({...form,date:v})} type="date"/></div>
+      <div style={{width:100}}><Input label="Hora" value={form.time} onChange={v=>setForm({...form,time:v})} placeholder="10:00"/></div>
+      <div style={{flex:1,minWidth:200}}><Input label="Link a la minuta (opcional)" value={form.minutes_url} onChange={v=>setForm({...form,minutes_url:v})}/></div>
+    </div>
+    <FileOrLink label="Informe de resultados (PDF)" url={form.report_url} file={form._report} onUrl={v=>setForm({...form,report_url:v})} onFile={f=>setForm({...form,_report:f})} accept=".pdf"/>
+    <Btn small onClick={save}>Guardar</Btn>
+    {msg&&<div style={{fontSize:11,color:P.accent,margin:"8px 0"}}>{msg}</div>}
+    <div style={{marginTop:10}}>{rows.map(r=><div key={r.id} style={{display:"flex",gap:14,alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:`1px solid ${P.border}`,flexWrap:"wrap"}}>
+      <b style={{color:P.text,width:70}}>{r.period}</b>
+      <span style={{color:r.date?P.text:P.accent}}>{r.date?`Reunión ${r.date}${r.time?` · ${r.time}`:""}`:"Sin fecha"}</span>
+      {r.report_url?<a href={r.report_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:600,textDecoration:"none"}}>Informe ↗</a>:<span style={{color:P.accent}}>Falta el informe</span>}
+      {r.minutes_url&&<a href={r.minutes_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:600,textDecoration:"none"}}>Minuta ↗</a>}
+      <button onClick={()=>{setForm({period:r.period,date:r.date||"",time:r.time||"",minutes_url:r.minutes_url||"",report_url:r.report_url||"",_report:null});}} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",marginLeft:"auto"}} title="Editar">✏️</button>
+      <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer"}} title="Borrar">🗑</button>
+    </div>)}</div>
+  </div>;
+}
+
+// Menú global → Sincronización con la plataforma (MySQL)
+function SincronizacionView() {
+  const [runs, setRuns] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [msg, setMsg] = useState("");
+  useEffect(()=>{ load(); },[]);
+  async function load(){const {data}=await supabase.from("sync_runs").select("*").order("started_at",{ascending:false}).limit(15);setRuns(data||[]);}
+  async function run(){
+    setRunning(true);setMsg("");setResult(null);
+    try{
+      if(IS_PREVIEW){
+        await new Promise(r=>setTimeout(r,900));
+        setResult({dryRun:true,periodLabel:"Oct 2026",companies:[{company:"Empresa Demo",codes:["#bienestardemo","#demoparticular"],unknownCodes:[],months:14,reasons:15,diffCount:1,diffs:[{month:"Oct 2026",field:"nuevos",loaded:3,mysql:4}]}]});
+      } else {
+        const {data:{session}}=await supabase.auth.getSession();
+        const r=await fetch("/api/sync-mysql",{method:"POST",headers:{Authorization:`Bearer ${session?.access_token}`}});
+        const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||`Error ${r.status}`);
+        setResult(j);
+      }
+      load();
+    }catch(e){setMsg("No se pudo sincronizar: "+e.message);}
+    setRunning(false);
+  }
+  const FIELD={canjeadas:"Sesiones",realizadas:"Realizadas",activos:"Activos",nuevos:"Nuevos",total_historico:"Total histórico",primera_vez:"Primera vez","(mes nuevo)":"Mes que no estaba cargado"};
+  return <div style={{padding:"24px 28px",maxWidth:900}}>
+    <div style={{fontSize:13,color:P.textMuted,lineHeight:1.6,marginBottom:16}}>
+      Todos los días a las 3:17 (hora de Uruguay) el sistema lee la plataforma y actualiza sesiones, sesiones por cupón, personas activas, nuevas, primera vez y motivos de consulta de cada empresa. Solo trae totales: nunca datos de una persona.
+    </div>
+    <Card>
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:220}}>
+          <div style={{fontSize:14,fontWeight:700,color:P.text}}>Sincronizar ahora</div>
+          <div style={{fontSize:11,color:P.textMuted}}>En modo prueba calcula y compara contra lo cargado, sin cambiar nada.</div>
+        </div>
+        <Btn onClick={run} disabled={running}>{running?"Sincronizando…":"Sincronizar ahora"}</Btn>
+      </div>
+      {msg&&<div style={{fontSize:12,color:P.red,marginTop:10}}>{msg}</div>}
+      {result&&<div style={{marginTop:14,borderTop:`1px solid ${P.border}`,paddingTop:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · motivos al {result.periodLabel}</div>
+        {result.companies.map(c=><div key={c.company} style={{padding:"8px 0",borderBottom:`1px solid ${P.border}`,fontSize:12}}>
+          <b style={{color:P.text}}>{c.company}</b>{" "}
+          {c.skipped?<span style={{color:P.accent}}>· {c.skipped} (cargalos en Configuración)</span>
+           :<span style={{color:P.textMuted}}>· {c.months} meses · {c.reasons} motivos · {c.diffCount===0?"coincide con lo cargado ✓":`${c.diffCount} diferencias con lo cargado`}</span>}
+          {c.unknownCodes?.length>0&&<div style={{color:P.red}}>Estos cupones no existen en la plataforma: {c.unknownCodes.join(", ")}</div>}
+          {c.diffs?.length>0&&<table style={{marginTop:6,borderCollapse:"collapse",fontSize:11.5}}><tbody>
+            {c.diffs.slice(0,10).map((d,i)=><tr key={i}><td style={{padding:"2px 10px 2px 0",color:P.textMuted}}>{d.month}</td><td style={{padding:"2px 10px 2px 0"}}>{FIELD[d.field]||d.field}</td><td style={{padding:"2px 10px 2px 0"}}>cargado: <b>{d.loaded??"—"}</b></td><td>plataforma: <b>{d.mysql}</b></td></tr>)}
+          </tbody></table>}
+        </div>)}
+      </div>}
+    </Card>
+    <SectionTitle>Últimas corridas</SectionTitle>
+    {runs.length===0?<div style={{fontSize:12,color:P.textMuted}}>Todavía no corrió.</div>:
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>{runs.map(r=><div key={r.id} style={{display:"flex",gap:12,fontSize:12,background:P.white,border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 12px",flexWrap:"wrap"}}>
+      <span style={{color:r.status==="ok"?P.primary:r.status==="error"?P.red:P.accent,fontWeight:700}}>{r.status==="ok"?"✓ OK":r.status==="error"?"✕ Error":"… En curso"}</span>
+      <span style={{color:P.text}}>{new Date(r.started_at).toLocaleString("es-UY")}</span>
+      <span style={{color:P.textMuted}}>{r.trigger==="cron"?"automática":"manual"}{r.dry_run?" · prueba":""}</span>
+      {r.error&&<span style={{color:P.red}}>{r.error}</span>}
+      {r.summary?.diffs&&<span style={{color:P.textMuted}}>{r.summary.diffs.length} diferencias</span>}
+    </div>)}</div>}
+  </div>;
+}
+
 // ── TALLERES TAB ───────────────────────────────────────────────────
+// Iniciativas (taller, contención, evento, stand, activación) + recomendaciones con audiencia/formato/por qué.
+const INIT_TYPES=[{value:"taller",label:"Taller temático"},{value:"contencion",label:"Taller de contención grupal"},{value:"evento",label:"Participación en evento"},{value:"stand",label:"Activación con stand"},{value:"activacion",label:"Activación"}];
+const INIT_LABEL=Object.fromEntries(INIT_TYPES.map(t=>[t.value,t.label]));
+const isTallerType=(t)=>t==="taller"||t==="contencion"||!t;
+const EMPTY_TALLER={initiative_type:"taller",title:"",date:"",speaker:"",initials:"",participants:"",rating:"",responses:"",survey_url:"",report_url:"",material_url:"",cost:"",cost_usd:"",_report:null,_material:null};
+const EMPTY_REC={audience:"colaboradores",title:"",format:"",reason:"",month:""};
+
+// Sube un archivo a un bucket y devuelve su URL pública (o null si falla)
+async function uploadTo(bucket, path, file){
+  const {error}=await supabase.storage.from(bucket).upload(path,file,{upsert:true,contentType:file.type});
+  if(error) return null;
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+// Campo "archivo o link": se puede pegar un link o elegir un archivo para subir
+function FileOrLink({ label, url, file, onUrl, onFile, accept="*" }){
+  return <div style={{marginBottom:12}}>
+    <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
+    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <input value={url||""} onChange={e=>onUrl(e.target.value)} placeholder="Pegá un link…" style={{flex:1,minWidth:180,padding:"8px 10px",border:`1px solid ${P.border}`,borderRadius:7,fontSize:12,fontFamily:"inherit"}}/>
+      <span style={{fontSize:11,color:P.textMuted}}>o</span>
+      <label style={{display:"inline-flex",alignItems:"center",gap:6,background:P.white,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+        📎 {file?file.name:"Subir archivo"}
+        <input type="file" accept={accept} style={{display:"none"}} onChange={e=>e.target.files[0]&&onFile(e.target.files[0])}/>
+      </label>
+    </div>
+  </div>;
+}
+
 function TalleresTab({ companyId }) {
   const [subtab, setSubtab] = useState("realizados");
   const [rows, setRows] = useState([]);
   const [recs, setRecs] = useState([]);
+  const [talleristas, setTalleristas] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
-  const [form, setForm] = useState({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""});
-  const [recForm, setRecForm] = useState({title:"",descripcion:"",month:""});
+  const [editingRecId, setEditingRecId] = useState(null);
+  const [form, setForm] = useState(EMPTY_TALLER);
+  const [recForm, setRecForm] = useState(EMPTY_REC);
+  const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  useEffect(()=>{ load(); loadRecs(); },[companyId]);
+  useEffect(()=>{ load(); loadRecs(); (async()=>{const {data}=await supabase.from("talleristas").select("*").order("name");setTalleristas(data||[]);})(); },[companyId]);
   async function load(){const {data}=await supabase.from("workshops").select("*").eq("company_id",companyId).order("date",{ascending:false});setRows(data||[]);}
   async function loadRecs(){const {data}=await supabase.from("workshops_recommended").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRecs(data||[]);}
-  function resetForm(){ setForm({title:"",date:"",speaker:"",initials:"",type:"Activación",lang:"Español",rating:"",rating_tallerista:"",rating_relevancia:"",cost:"",cost_usd:""}); setEditingId(null); }
+  function resetForm(){ setForm(EMPTY_TALLER); setEditingId(null); }
   function editRow(r){
-    setForm({title:r.title||"",date:r.date||"",speaker:r.speaker||"",initials:r.initials||"",type:r.type||"Activación",lang:r.lang||"Español",rating:r.rating??"",rating_tallerista:r.rating_tallerista??"",rating_relevancia:r.rating_relevancia??"",cost:r.cost??"",cost_usd:r.cost_usd??""});
+    setForm({...EMPTY_TALLER,...Object.fromEntries(Object.keys(EMPTY_TALLER).filter(k=>!k.startsWith("_")).map(k=>[k,r[k]??""])),initiative_type:r.initiative_type||"taller"});
     setEditingId(r.id); setShowForm(true);
   }
   async function save(){
-    if(!form.title||!form.date){setMsg("Título y fecha obligatorios.");return;}
-    const payload={title:form.title,date:form.date,speaker:form.speaker,initials:form.initials,type:form.type,lang:form.lang,rating:parseFloat(form.rating)||null,rating_tallerista:parseFloat(form.rating_tallerista)||null,rating_relevancia:parseFloat(form.rating_relevancia)||null,cost:parseInt(form.cost)||null,cost_usd:parseFloat(form.cost_usd)||null};
-    const {error}= editingId
-      ? await supabase.from("workshops").update(payload).eq("id",editingId)
-      : await supabase.from("workshops").insert([{...payload,company_id:companyId}]);
-    if(error) setMsg("Error: "+error.message);
-    else{setMsg(editingId?"Taller actualizado.":"Taller guardado.");setShowForm(false);load();resetForm();}
+    if(!form.title||!form.date){setMsg("Título y fecha son obligatorios.");return;}
+    const rt=parseFloat(String(form.rating).replace(",","."));
+    if(form.rating!==""&&(isNaN(rt)||rt<0||rt>10)){setMsg("La satisfacción va de 0 a 10.");return;}
+    setSaving(true);
+    const taller=isTallerType(form.initiative_type);
+    const tal=talleristas.find(t=>t.name===form.speaker);
+    const payload={initiative_type:form.initiative_type,title:form.title.trim(),date:form.date,
+      speaker:taller?form.speaker||null:null,initials:taller?(tal?.initials||form.initials||null):null,
+      participants:parseInt(form.participants)||null,
+      rating:taller&&form.rating!==""?rt:null,responses:taller?parseInt(form.responses)||null:null,
+      survey_url:taller?form.survey_url.trim()||null:null,report_url:taller?form.report_url.trim()||null:null,
+      material_url:form.material_url.trim()||null,cost:parseInt(form.cost)||null,cost_usd:parseFloat(form.cost_usd)||null};
+    const {data:saved,error}= editingId
+      ? await supabase.from("workshops").update(payload).eq("id",editingId).select().single()
+      : await supabase.from("workshops").insert([{...payload,company_id:companyId}]).select().single();
+    if(error){setSaving(false);setMsg("Error: "+error.message);return;}
+    // Archivos: informe de resultados → bucket "informes"; material → bucket "contenido"
+    const ups={};
+    if(form._report){const u=await uploadTo("informes",`${companyId}/talleres/${saved.id}-informe.${form._report.name.split(".").pop()}`,form._report); if(u) ups.report_url=u;}
+    if(form._material){const u=await uploadTo("contenido",`${companyId}/talleres/${saved.id}-material.${form._material.name.split(".").pop()}`,form._material); if(u) ups.material_url=u;}
+    if(Object.keys(ups).length) await supabase.from("workshops").update(ups).eq("id",saved.id);
+    setSaving(false);setMsg(editingId?"Iniciativa actualizada.":"Iniciativa guardada.");setShowForm(false);load();resetForm();
   }
   async function saveRec(){
-    if(!recForm.title){setMsg("Título obligatorio.");return;}
-    const {error}=await supabase.from("workshops_recommended").insert([{...recForm,company_id:companyId}]);
+    if(!recForm.title){setMsg("El nombre del taller o ciclo es obligatorio.");return;}
+    const payload={audience:recForm.audience,title:recForm.title.trim(),format:recForm.format.trim()||null,reason:recForm.reason.trim()||null,month:recForm.month.trim()||null};
+    const {error}= editingRecId
+      ? await supabase.from("workshops_recommended").update(payload).eq("id",editingRecId)
+      : await supabase.from("workshops_recommended").insert([{...payload,company_id:companyId}]);
     if(error) setMsg("Error: "+error.message);
-    else{setMsg("Recomendación guardada.");setShowRecForm(false);loadRecs();setRecForm({title:"",descripcion:"",month:""});}
+    else{setMsg("Recomendación guardada.");setShowRecForm(false);setEditingRecId(null);loadRecs();setRecForm(EMPTY_REC);}
   }
-  async function del(id){await supabase.from("workshops").delete().eq("id",id);load();}
-  async function delRec(id){await supabase.from("workshops_recommended").delete().eq("id",id);loadRecs();}
-  const TIPOS=["Activación","Concientización","Mindfulness","Liderazgo","8M","Otro"];
+  async function del(id){if(!ask("¿Borrar esta iniciativa?"))return;await supabase.from("workshops").delete().eq("id",id);load();}
+  async function delRec(id){if(!ask("¿Borrar esta recomendación?"))return;await supabase.from("workshops_recommended").delete().eq("id",id);loadRecs();}
+  const taller=isTallerType(form.initiative_type);
+  const n1=(v)=>v==null||v===""?"":String(v).replace(".",",");
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
     <div style={{display:"flex",gap:4,marginBottom:16,borderBottom:`1px solid ${P.border}`}}>
-      {["realizados","recomendados"].map(t=><button key={t} onClick={()=>setSubtab(t)} style={{fontSize:12,fontWeight:subtab===t?600:400,color:subtab===t?P.primary:P.textMuted,background:"none",border:"none",borderBottom:subtab===t?`2px solid ${P.primary}`:"2px solid transparent",padding:"8px 14px",cursor:"pointer",textTransform:"capitalize"}}>{t}</button>)}
+      {[["realizados","Iniciativas realizadas"],["recomendados","Recomendaciones"]].map(([t,l])=><button key={t} onClick={()=>setSubtab(t)} style={{fontSize:12,fontWeight:subtab===t?600:400,color:subtab===t?P.primary:P.textMuted,background:"none",border:"none",borderBottom:subtab===t?`2px solid ${P.primary}`:"2px solid transparent",padding:"8px 14px",cursor:"pointer"}}>{l}</button>)}
     </div>
     {subtab==="realizados"&&<>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-        <div style={{fontSize:13,color:P.textMuted}}>{rows.length} talleres</div>
-        <Btn small onClick={()=>{ if(showForm){setShowForm(false);resetForm();} else {resetForm();setShowForm(true);} }}>+ Agregar taller</Btn>
+        <div style={{fontSize:13,color:P.textMuted}}>{rows.length} iniciativas</div>
+        <Btn small onClick={()=>{ if(showForm){setShowForm(false);resetForm();} else {resetForm();setShowForm(true);} }}>+ Agregar iniciativa</Btn>
       </div>
       {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
-        <div style={{fontSize:12,fontWeight:700,color:P.primary,marginBottom:10}}>{editingId?"Editar taller":"Nuevo taller"}</div>
+        <div style={{fontSize:12,fontWeight:700,color:P.primary,marginBottom:10}}>{editingId?"Editar iniciativa":"Nueva iniciativa"}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Mindfulness en el trabajo"/>
-          <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})} placeholder="ej. Ago 2025"/>
-          <Input label="Speaker" value={form.speaker} onChange={v=>setForm({...form,speaker:v})}/>
-          <Input label="Iniciales" value={form.initials} onChange={v=>setForm({...form,initials:v})} placeholder="ej. TT"/>
-          <Select label="Tipo" value={form.type} onChange={v=>setForm({...form,type:v})} options={TIPOS.map(t=>({value:t,label:t}))}/>
-          <Select label="Idioma" value={form.lang} onChange={v=>setForm({...form,lang:v})} options={[{value:"Español",label:"Español"},{value:"Inglés",label:"Inglés"}]}/>
-          <Input label="★ Satisfacción general" value={form.rating} onChange={v=>setForm({...form,rating:v})} type="number" placeholder="ej. 4.8"/>
-          <Input label="★ Calificación tallerista" value={form.rating_tallerista} onChange={v=>setForm({...form,rating_tallerista:v})} type="number"/>
-          <Input label="★ Relevancia contenido" value={form.rating_relevancia} onChange={v=>setForm({...form,rating_relevancia:v})} type="number"/>
+          <Select label="Tipo de iniciativa" value={form.initiative_type} onChange={v=>setForm({...form,initiative_type:v})} options={INIT_TYPES}/>
+          <Input label="Nombre" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Concientización en salud mental"/>
+          <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})} type="date"/>
+          <Input label={taller?"Participantes":"Personas que participaron"} value={form.participants} onChange={v=>setForm({...form,participants:v})} type="number"/>
+          {taller&&<Select label="Tallerista" value={form.speaker} onChange={v=>setForm({...form,speaker:v})} options={[{value:"",label:"— Elegí —"},...talleristas.map(t=>({value:t.name,label:t.name}))]}/>}
+          {taller&&<Input label="Satisfacción (0 a 10)" value={form.rating} onChange={v=>setForm({...form,rating:v})} placeholder="ej. 9,2"/>}
+          {taller&&<Input label="Cantidad de respuestas de la encuesta" value={form.responses} onChange={v=>setForm({...form,responses:v})} type="number"/>}
+          {taller&&<Input label="Link de la encuesta de feedback (Typeform)" value={form.survey_url} onChange={v=>setForm({...form,survey_url:v})} placeholder="https://form.typeform.com/…"/>}
           <Input label="Costo pagado (UYU) — se usa en inversión" value={form.cost} onChange={v=>setForm({...form,cost:v})} type="number" placeholder="ej. 28000"/>
           <Input label="Costo facturado (USD) — referencia" value={form.cost_usd} onChange={v=>setForm({...form,cost_usd:v})} type="number" placeholder="ej. 732"/>
         </div>
-        <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
+        {taller&&<FileOrLink label="Informe de resultados" url={form.report_url} file={form._report} onUrl={v=>setForm({...form,report_url:v})} onFile={f=>setForm({...form,_report:f})} accept=".pdf"/>}
+        <FileOrLink label={taller?"Contenido post-taller":"Material de la activación"} url={form.material_url} file={form._material} onUrl={v=>setForm({...form,material_url:v})} onFile={f=>setForm({...form,_material:f})}/>
+        {taller&&talleristas.length===0&&<div style={{fontSize:11,color:P.accent,marginBottom:10}}>No hay talleristas cargados: agregalos en el menú Talleristas para elegirlos acá (con su foto).</div>}
+        <div style={{display:"flex",gap:8}}><Btn small onClick={save} disabled={saving}>{saving?"Guardando…":editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
       </Card>}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin talleres aún.</div></Card>}
-        {rows.map(r=><div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:36,height:36,borderRadius:"50%",background:P.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <span style={{color:"#fff",fontWeight:700,fontSize:10}}>{r.initials||"TT"}</span>
-          </div>
-          <div style={{flex:1}}>
+        {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin iniciativas aún.</div></Card>}
+        {rows.map(r=>{const tl=isTallerType(r.initiative_type); return <div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:10,fontWeight:700,color:P.accent,textTransform:"uppercase",letterSpacing:"0.05em"}}>{INIT_LABEL[r.initiative_type]||"Taller temático"}</div>
             <div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div>
-            <div style={{fontSize:11,color:P.textMuted}}>{r.date} · {r.speaker} · {r.type}</div>
-            {(r.rating||r.rating_tallerista||r.rating_relevancia)&&<div style={{fontSize:11,color:P.accent,marginTop:2}}>
-              {r.rating&&`★ ${r.rating} general`} {r.rating_tallerista&&`· ${r.rating_tallerista} tallerista`} {r.rating_relevancia&&`· ${r.rating_relevancia} relevancia`}
-            </div>}
-            {r.cost&&<div style={{fontSize:11,color:P.textMuted,marginTop:2}}>Costo: $ {new Intl.NumberFormat("es-UY").format(r.cost)}{r.cost_usd?` · USD ${r.cost_usd}`:""}</div>}
+            <div style={{fontSize:11,color:P.textMuted}}>{r.date}{tl&&r.speaker?` · ${r.speaker}`:""}{r.participants?` · ${r.participants} participantes`:""}{r.cost?` · $ ${new Intl.NumberFormat("es-UY").format(r.cost)}`:""}</div>
+            <div style={{display:"flex",gap:10,fontSize:11,marginTop:3,flexWrap:"wrap"}}>
+              {tl&&(r.rating!=null?<span style={{color:P.primary,fontWeight:700}}>★ {n1(r.rating)}/10 · {r.responses||0} respuestas</span>:<span style={{color:P.accent}}>Falta la satisfacción</span>)}
+              {tl&&!r.survey_url&&<span style={{color:P.accent}}>Falta el link de la encuesta</span>}
+              {tl&&!r.report_url&&<span style={{color:P.accent}}>Falta el informe</span>}
+              {r.material_url&&<a href={r.material_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:600,textDecoration:"none"}}>Material ↗</a>}
+              {tl&&r.report_url&&<a href={r.report_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:600,textDecoration:"none"}}>Informe ↗</a>}
+            </div>
           </div>
           <div style={{display:"flex",gap:8,flexShrink:0}}>
             <button onClick={()=>editRow(r)} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:15}} title="Editar">✏️</button>
-            <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+            <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}} title="Borrar">🗑</button>
           </div>
-        </div>)}
+        </div>;})}
       </div>
     </>}
     {subtab==="recomendados"&&<>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-        <div style={{fontSize:13,color:P.textMuted}}>{recs.length} recomendados</div>
-        <Btn small onClick={()=>setShowRecForm(!showRecForm)}>+ Agregar</Btn>
+        <div style={{fontSize:13,color:P.textMuted}}>{recs.length} recomendaciones · se muestran arriba de todo en Talleres</div>
+        <Btn small onClick={()=>{setShowRecForm(!showRecForm);setEditingRecId(null);setRecForm(EMPTY_REC);}}>+ Agregar recomendación</Btn>
       </div>
       {showRecForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
-        <Input label="Título" value={recForm.title} onChange={v=>setRecForm({...recForm,title:v})} placeholder="ej. Gestión del estrés"/>
-        <Textarea label="Descripción" value={recForm.descripcion} onChange={v=>setRecForm({...recForm,descripcion:v})} rows={2}/>
-        <Input label="Mes sugerido" value={recForm.month} onChange={v=>setRecForm({...recForm,month:v})} placeholder="ej. Jun 2026"/>
-        <div style={{display:"flex",gap:8}}><Btn small onClick={saveRec}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowRecForm(false)}>Cancelar</Btn></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Select label="Audiencia" value={recForm.audience} onChange={v=>setRecForm({...recForm,audience:v})} options={[{value:"colaboradores",label:"Para colaboradores"},{value:"lideres",label:"Para líderes"}]}/>
+          <Input label="Nombre del taller o ciclo" value={recForm.title} onChange={v=>setRecForm({...recForm,title:v})} placeholder="ej. Liderar equipos bajo presión"/>
+          <Input label="Formato" value={recForm.format} onChange={v=>setRecForm({...recForm,format:v})} placeholder="ej. Ciclo de 3 encuentros · uno por mes"/>
+          <Input label="Mes sugerido (opcional)" value={recForm.month} onChange={v=>setRecForm({...recForm,month:v})} placeholder="ej. Mar 2027"/>
+        </div>
+        <Textarea label="Por qué: el dato de motivos que lo justifica" value={recForm.reason} onChange={v=>setRecForm({...recForm,reason:v})} rows={2} placeholder="ej. El estrés laboral subió 6 puntos desde julio y ya es el segundo motivo de consulta."/>
+        <div style={{display:"flex",gap:8}}><Btn small onClick={saveRec}>{editingRecId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowRecForm(false);setEditingRecId(null);}}>Cancelar</Btn></div>
       </Card>}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {recs.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin recomendaciones aún.</div></Card>}
         {recs.map(r=><div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
-          <div style={{flex:1}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:10,fontWeight:700,color:P.accent,textTransform:"uppercase",letterSpacing:"0.05em"}}>{r.audience==="lideres"?"Para líderes":"Para colaboradores"}{r.month?` · ${r.month}`:""}</div>
             <div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div>
-            {r.descripcion&&<div style={{fontSize:11,color:P.textMuted}}>{r.descripcion}</div>}
-            {r.month&&<span style={{background:P.lighter,color:P.primary,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20}}>{r.month}</span>}
+            {(r.format||r.descripcion)&&<div style={{fontSize:11,color:P.textMuted}}>{r.format||r.descripcion}</div>}
+            {r.reason?<div style={{fontSize:11,color:P.text,marginTop:2}}><b>Por qué:</b> {r.reason}</div>:<div style={{fontSize:11,color:P.accent,marginTop:2}}>Falta el "por qué"</div>}
           </div>
-          <button onClick={()=>delRec(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={()=>{setRecForm({audience:r.audience||"colaboradores",title:r.title||"",format:r.format||r.descripcion||"",reason:r.reason||"",month:r.month||""});setEditingRecId(r.id);setShowRecForm(true);}} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:15}} title="Editar">✏️</button>
+            <button onClick={()=>delRec(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}} title="Borrar">🗑</button>
+          </div>
         </div>)}
       </div>
     </>}
@@ -874,59 +1169,82 @@ function TalleresTab({ companyId }) {
 }
 
 // ── CONTENIDO TAB ──────────────────────────────────────────────────
+// Piezas por sección del dash + el feedback (estrellas y comentarios) que deja RRHH en cada una.
+const CONTENT_CATS=[{value:"protocolo",label:"Protocolos · acceso rápido"},{value:"lideres",label:"Para líderes"},{value:"colaboradores",label:"Para colaboradores"},{value:"mensual",label:"Qué compartir cada mes"},{value:"beneficio",label:"Comunicar el beneficio"}];
+const CAT_LABEL=Object.fromEntries(CONTENT_CATS.map(c=>[c.value,c.label]));
+const MESES_FULL=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const EMPTY_CONTENT={category:"lideres",title:"",format:"",description:"",file_url:"",_file:null};
+
 function ContenidoTab({ companyId }) {
   const [rows, setRows] = useState([]);
+  const [feedback, setFeedback] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({title:"",type:"Campana",date:"",_file:null});
-  const [uploading, setUploading] = useState({});
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(EMPTY_CONTENT);
+  const [openFb, setOpenFb] = useState(null);
   const [msg, setMsg] = useState("");
   useEffect(()=>{ load(); },[companyId]);
-  async function load(){const {data}=await supabase.from("content").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);}
-  async function save(){
-    if(!form.title){setMsg("Título obligatorio.");return;}
-    const today=new Date().toLocaleDateString("es-UY",{month:"short",year:"numeric"});
-    const {data:ins,error}=await supabase.from("content").insert([{title:form.title,type:form.type,date:form.date||today,company_id:companyId,is_new:true}]).select().single();
-    if(error){setMsg("Error: "+error.message);return;}
-    if(form._file){
-      const ext=form._file.name.split('.').pop();
-      const path=`${companyId}/${ins.id}.${ext}`;
-      const {error:upErr}=await supabase.storage.from("contenido").upload(path,form._file,{upsert:true,contentType:form._file.type});
-      if(!upErr){const {data}=supabase.storage.from("contenido").getPublicUrl(path);await supabase.from("content").update({file_url:data.publicUrl}).eq("id",ins.id);}
-    }
-    setMsg("Contenido agregado.");setShowForm(false);load();setForm({title:"",type:"Campana",date:"",_file:null});
+  async function load(){
+    const {data}=await supabase.from("content").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setRows(data||[]);
+    const {data:fb}=await supabase.from("content_feedback").select("*").eq("company_id",companyId).order("created_at",{ascending:false});setFeedback(fb||[]);
   }
-  async function del(id){await supabase.from("content").delete().eq("id",id);load();}
-  const TYPE_C={Campana:{bg:"#FFF0E6",tx:"#7A3800"},Guia:{bg:P.lighter,tx:P.primary},Protocolo:{bg:"#EEF4FF",tx:"#1A3A8B"}};
+  function resetForm(){setForm(EMPTY_CONTENT);setEditingId(null);}
+  async function save(){
+    if(!form.title){setMsg("El título es obligatorio.");return;}
+    if(form.category==="mensual"&&!MESES_FULL.includes(form.format)){setMsg("Para \"Qué compartir cada mes\" elegí el mes.");return;}
+    const payload={category:form.category,title:form.title.trim(),format:form.format.trim()||null,description:form.description.trim()||null,
+      type:(form.format||"").split(" ·")[0]||null,file_url:form.file_url.trim()||null};
+    const {data:saved,error}= editingId
+      ? await supabase.from("content").update(payload).eq("id",editingId).select().single()
+      : await supabase.from("content").insert([{...payload,company_id:companyId,is_new:true,date:new Date().toISOString().slice(0,10)}]).select().single();
+    if(error){setMsg("Error: "+error.message);return;}
+    if(form._file){const u=await uploadTo("contenido",`${companyId}/${saved.id}.${form._file.name.split(".").pop()}`,form._file); if(u) await supabase.from("content").update({file_url:u}).eq("id",saved.id);}
+    setMsg(editingId?"Contenido actualizado.":"Contenido agregado.");setShowForm(false);resetForm();load();
+  }
+  async function del(id){if(!ask("¿Borrar este contenido? También se borra su feedback."))return;await supabase.from("content").delete().eq("id",id);load();}
+  const fbOf=(id)=>feedback.filter(f=>f.content_id===id);
+  const avg=(list)=>list.length?String(Math.round(list.reduce((s,f)=>s+f.stars,0)/list.length*10)/10).replace(".",","):null;
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-      <div style={{fontSize:13,color:P.textMuted}}>{rows.length} piezas</div>
-      <Btn small onClick={()=>setShowForm(!showForm)}>+ Agregar contenido</Btn>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+      <div style={{fontSize:13,color:P.textMuted}}>{rows.length} piezas · {feedback.length} respuestas de RRHH</div>
+      <Btn small onClick={()=>{if(showForm){setShowForm(false);resetForm();}else{resetForm();setShowForm(true);}}}>+ Agregar contenido</Btn>
     </div>
     {showForm&&<Card style={{background:P.lighter,borderColor:P.primary+"44"}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Guia para lideres"/>
-        <Select label="Tipo" value={form.type} onChange={v=>setForm({...form,type:v})} options={[{value:"Campana",label:"Campaña"},{value:"Guia",label:"Guía"},{value:"Protocolo",label:"Protocolo"}]}/>
-        <Input label="Fecha" value={form.date} onChange={v=>setForm({...form,date:v})} placeholder="ej. May 2026"/>
+        <Select label="Sección del dash" value={form.category} onChange={v=>setForm({...form,category:v,format:v==="mensual"?MESES_FULL[new Date().getMonth()]:""})} options={CONTENT_CATS}/>
+        <Input label="Título" value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="ej. Primeros auxilios psicológicos"/>
+        {form.category==="mensual"
+          ? <Select label="Mes" value={form.format} onChange={v=>setForm({...form,format:v})} options={MESES_FULL.map(m=>({value:m,label:m}))}/>
+          : <Input label="Formato (se muestra como etiqueta)" value={form.format} onChange={v=>setForm({...form,format:v})} placeholder="ej. Guía · PDF, Video · 6 min, PDF · 4 páginas"/>}
+        <Input label="Descripción corta" value={form.description} onChange={v=>setForm({...form,description:v})} placeholder="ej. Qué mirar y cuándo escalar."/>
       </div>
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:11,fontWeight:600,color:P.textMuted,display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Archivo</label>
-        <label style={{display:"inline-flex",alignItems:"center",gap:8,background:P.lighter,color:P.primary,border:`1px solid ${P.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-          📎 {form._file?form._file.name:"Seleccionar archivo"}
-          <input type="file" style={{display:"none"}} onChange={e=>e.target.files[0]&&setForm({...form,_file:e.target.files[0]})}/>
-        </label>
-      </div>
-      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>Guardar</Btn><Btn small variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn></div>
+      <FileOrLink label="Archivo o link" url={form.file_url} file={form._file} onUrl={v=>setForm({...form,file_url:v})} onFile={f=>setForm({...form,_file:f})}/>
+      <div style={{display:"flex",gap:8}}><Btn small onClick={save}>{editingId?"Actualizar":"Guardar"}</Btn><Btn small variant="secondary" onClick={()=>{setShowForm(false);resetForm();}}>Cancelar</Btn></div>
     </Card>}
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin contenido aún.</div></Card>}
-      {rows.map(r=>{const col=TYPE_C[r.type]||{bg:P.lighter,tx:P.primary};return <div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <Badge text={r.type==="Campana"?"Campaña":r.type==="Guia"?"Guía":r.type} bg={col.bg} color={col.tx}/>
-        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div><div style={{fontSize:11,color:P.textMuted}}>{r.date}</div></div>
-        {r.file_url&&<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>}
-        <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}}>🗑</button>
-      </div>;})}
-    </div>
+    {rows.length===0&&<Card><div style={{textAlign:"center",padding:"16px",color:P.textMuted}}>Sin contenido aún.</div></Card>}
+    {[...CONTENT_CATS,{value:"__otros",label:"Sin sección (no se muestra en el dash)"}].map(cat=>{
+      const items=rows.filter(r=>cat.value==="__otros"?!CAT_LABEL[r.category]:r.category===cat.value);
+      if(!items.length) return null;
+      return <div key={cat.value} style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:cat.value==="__otros"?P.accent:P.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{cat.label}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {items.map(r=>{const fb=fbOf(r.id); return <div key={r.id} style={{background:P.white,borderRadius:10,border:`1px solid ${P.border}`,padding:"12px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              {r.format&&<Badge text={r.format}/>}
+              <div style={{flex:1,minWidth:160}}><div style={{fontSize:13,fontWeight:600,color:P.text}}>{r.title}</div>{r.description&&<div style={{fontSize:11,color:P.textMuted}}>{r.description}</div>}</div>
+              <button onClick={()=>setOpenFb(openFb===r.id?null:r.id)} disabled={!fb.length} style={{background:"none",border:"none",cursor:fb.length?"pointer":"default",fontSize:12,fontWeight:600,color:fb.length?"#b8892e":P.textMuted}}>{fb.length?`★ ${avg(fb)} · ${fb.length} ${fb.length===1?"respuesta":"respuestas"}`:"Sin feedback"}</button>
+              {r.file_url?<a href={r.file_url} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇ Ver</a>:<span style={{fontSize:11,color:P.accent}}>Falta el archivo</span>}
+              <button onClick={()=>{setForm({category:r.category||"lideres",title:r.title||"",format:r.format||"",description:r.description||"",file_url:r.file_url||"",_file:null});setEditingId(r.id);setShowForm(true);}} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:15}} title="Editar">✏️</button>
+              <button onClick={()=>del(r.id)} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:16}} title="Borrar">🗑</button>
+            </div>
+            {openFb===r.id&&<div style={{marginTop:10,borderTop:`1px solid ${P.border}`,paddingTop:8,display:"flex",flexDirection:"column",gap:6}}>
+              {fb.map(f=><div key={f.id} style={{fontSize:12,color:P.text}}><span style={{color:"#b8892e"}}>{"★".repeat(f.stars)}{"☆".repeat(5-f.stars)}</span> <span style={{color:P.textMuted}}>· {f.user_email} · {new Date(f.created_at).toLocaleDateString("es-UY")}</span>{f.comment&&<div style={{marginTop:2}}>“{f.comment}”</div>}</div>)}
+            </div>}
+          </div>;})}
+        </div>
+      </div>;
+    })}
   </div>;
 }
 
@@ -978,7 +1296,11 @@ function MotivosTab({ companyId }) {
         rows_to_insert.push({company_id:companyId, reason, count, percentage:pct, period});
       }
       if(rows_to_insert.length===0){ setMsg("No se encontraron motivos válidos."); setImporting(false); return; }
-      await supabase.from("consultation_reasons").delete().eq("company_id",companyId);
+      // Reemplaza solo los períodos que vienen en el CSV: el historial queda para comparar en el dash
+      for(const per of [...new Set(rows_to_insert.map(r=>r.period||""))]){
+        const q=supabase.from("consultation_reasons").delete().eq("company_id",companyId);
+        await (per?q.eq("period",per):q.is("period",null));
+      }
       const {error} = await supabase.from("consultation_reasons").insert(rows_to_insert);
       if(error) setMsg("Error: "+error.message);
       else { setMsg(`✓ ${rows_to_insert.length} motivos importados.`); load(); }
@@ -1190,19 +1512,8 @@ function EncuestasTab({ companyId }) {
   return <div style={{padding:"20px 24px"}}>
     <Msg text={msg}/>
     <Card style={{marginBottom:16}}>
-      <SectionTitle>Seguimiento intraplataforma (trimestral)</SectionTitle>
-      <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Puntaje de la encuesta que hacemos DENTRO de la plataforma a quienes usan el beneficio. Se muestra en el dash en "Seguimiento de personas que usan el beneficio". Escala 1–10.</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:seguimiento.length?12:0}}>
-        <div style={{width:130}}><Input label="Período" value={segForm.period} onChange={v=>setSegForm({...segForm,period:v})} placeholder="ej. Q3 2026"/></div>
-        <div style={{width:110}}><Input label="Puntaje (1-10)" value={segForm.score} onChange={v=>setSegForm({...segForm,score:v})} type="number"/></div>
-        <Btn small onClick={addSeguimiento}>Guardar</Btn>
-      </div>
-      {seguimiento.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {seguimiento.map(s=><div key={s.id} style={{background:P.lighter,border:`1px solid ${P.border}`,borderRadius:8,padding:"6px 12px",fontSize:12,display:"flex",gap:8,alignItems:"center"}}>
-          <b>{s.period}</b> · {Number(s.score).toFixed(1)}
-          <button onClick={async()=>{await supabase.from("seguimiento_beneficio").delete().eq("id",s.id);load();}} style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:13,padding:0}}>✕</button>
-        </div>)}
-      </div>}
+      <EncuestaPopupAdmin companyId={companyId}/>
+      <ReunionesSemestrales companyId={companyId}/>
     </Card>
     <Card style={{marginBottom:16,background:P.lighter,borderColor:P.primary+"33"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -1358,13 +1669,22 @@ function FacturacionTab({ companyId, company }) {
   }
   async function togglePaid(r){await supabase.from("billing").update({status:r.status==="pagado"?"pendiente":"pagado"}).eq("id",r.id);load();}
   async function sendReminder(r){
-    if(!company?.referente_email){setMsg("Esta empresa no tiene referente asignado.");return;}
+    // El recordatorio va al CLIENTE, no al referente de TT. Si falta el mail se avisa y no
+    // se manda nada: caer al referente sería mandarle a Flor un mail que dice "pagá tu factura".
+    if(!company?.billing_email){setMsg("Falta el mail de facturación del cliente. Cargalo en Configuración.");return;}
     try{
-      await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer re_9rj91mUx_K7pxQ8tKqs6SFoZmZskNTi2n"},
-        body:JSON.stringify({from:"noreply@tuterapia-empresas.com",to:company.referente_email,subject:`Recordatorio de pago — ${r.period} · Tu Terapia`,
-          html:`<p>Te recordamos que la factura del período <b>${r.period}</b> por <b>UY$ ${r.amount?.toLocaleString()}</b> está pendiente de pago.</p><p>Podés verla desde <a href="https://tuterapia-empresas.com">tu panel de bienestar</a>.</p><p>El equipo de Tu Terapia</p>`})});
-      setMsg(`Recordatorio enviado a ${company.referente_email}`);
-    }catch(e){setMsg("Error enviando recordatorio.");}
+      // El mail lo manda el servidor (Edge Function): la clave de Resend nunca va en el navegador
+      const {data:res,error:fnErr}=IS_PREVIEW?{data:{ok:true},error:null}:await supabase.functions.invoke("enviar-recordatorio",{body:{billing_id:r.id}});
+      if(fnErr||res?.error){
+        // El motivo real viaja en el cuerpo de la respuesta: fnErr.message solo dice
+        // "non-2xx status code", que no le sirve a nadie para saber qué hay que arreglar.
+        let detalle=res?.error||"";
+        if(!detalle&&fnErr?.context){ try{ detalle=(await fnErr.context.json())?.error||""; }catch{ detalle=""; } }
+        setMsg(detalle?`No se pudo enviar: ${detalle}`:"Error enviando recordatorio.");
+        return;
+      }
+      setMsg(`Recordatorio enviado a ${company.billing_email}`);
+    }catch(e){setMsg(`Error enviando recordatorio: ${e?.message||e}`);}
   }
   async function del(id){await supabase.from("billing").delete().eq("id",id);load();}
   return <div style={{padding:"20px 24px"}}>
@@ -1427,7 +1747,7 @@ function EmpresasView({ companies, reload, onSelect }) {
   }
   async function del(id){
     const emp=companies.find(c=>c.id===id);
-    if(!confirm(`¿Eliminar ${emp?.name||"esta empresa"}?\n\nSe borran TODOS sus datos (sesiones, talleres, facturación, encuestas, usuarios) y sus archivos subidos. No se puede deshacer.`))return;
+    if(!ask(`¿Eliminar ${emp?.name||"esta empresa"}?\n\nSe borran TODOS sus datos (sesiones, talleres, facturación, encuestas, usuarios) y sus archivos subidos. No se puede deshacer.`))return;
     // Los datos de la base se van por cascada; los archivos de Storage hay que borrarlos aparte
     for(const bucket of ["contenido","facturas","informes"]){
       const {data:files}=await supabase.storage.from(bucket).list(id,{limit:1000});
@@ -1596,7 +1916,7 @@ function EquipoView() {
   }
   async function toggle(r,field){await supabase.from("admin_users").update({[field]:!(r[field]!==false)}).eq("id",r.id);load();}
   async function del(r){
-    if(!confirm(`¿Quitar a ${r.name} del equipo? Perderá el acceso al panel admin.`))return;
+    if(!ask(`¿Quitar a ${r.name} del equipo? Perderá el acceso al panel admin.`))return;
     const usadas=await supabase.from("companies").select("id",{count:"exact",head:true}).eq("referente_email",r.email);
     if((usadas.count??0)>0){setMsg(`No se puede: ${r.name} es referente de ${usadas.count} empresa(s). Cambiá el referente primero.`);return;}
     await supabase.from("admin_users").delete().eq("id",r.id);
@@ -1752,7 +2072,7 @@ export default function Admin() {
   );
   if(!user) return <LoginView onLogin={(u,ad)=>{setUser(u);setAdminData(ad);}}/>;
 
-  const titles={dashboard:"Dashboard",empresas:"Empresas",talleristas:"Talleristas",tracking:"Tracking"};
+  const titles={dashboard:"Dashboard",empresas:"Empresas",talleristas:"Talleristas",equipo:"Equipo TT",tracking:"Tracking",sync:"Sincronización con la plataforma"};
 
   // If a company is selected, show the detail view
   if(selectedCompany&&active==="empresas") {
@@ -1776,6 +2096,7 @@ export default function Admin() {
         {active==="talleristas"&&<TalleristasView/>}
         {active==="equipo"&&<EquipoView/>}
         {active==="tracking"&&<TrackingView companies={companies}/>}
+        {active==="sync"&&<SincronizacionView/>}
       </div>
     </div>
   );

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    { "path": "/api/sync-mysql", "schedule": "17 6 * * *" }
+  ],
+  "functions": {
+    "api/sync-mysql.js": { "maxDuration": 60 }
+  }
+}
