@@ -783,31 +783,115 @@ function CuponesEmpresa({ companyId }) {
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [msg, setMsg] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [report, setReport] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const [perPerson, setPerPerson] = useState(false);
   useEffect(()=>{ load(); },[companyId]);
-  async function load(){const {data}=await supabase.from("company_coupons").select("*").eq("company_id",companyId).order("created_at");setRows(data||[]);}
+  async function load(){
+    const [{data},{data:co}]=await Promise.all([
+      supabase.from("company_coupons").select("*").eq("company_id",companyId).order("created_at"),
+      supabase.from("companies").select("coupons_per_person").eq("id",companyId).maybeSingle(),
+    ]);
+    setRows(data||[]); setPerPerson(!!co?.coupons_per_person);
+  }
+  // Con un cupón por persona, abrir la barra de sesiones por cupón en el dash equivale a
+  // mostrarle al cliente cuántas sesiones de terapia hizo cada colaborador. Este indicador
+  // es lo que le avisa al dash que las sume en una sola serie.
+  async function togglePerPerson(v){
+    setPerPerson(v);
+    const {error}=await supabase.from("companies").update({coupons_per_person:v}).eq("id",companyId);
+    if(error){setPerPerson(!v);setMsg("No se pudo guardar: "+error.message);} else setMsg("");
+  }
   async function add(){
     const c=code.trim(); if(!c){setMsg("Escribí el código del cupón tal cual está en la plataforma.");return;}
     const {error}=await supabase.from("company_coupons").insert([{company_id:companyId,coupon_code:c,label:label.trim()||null}]);
     if(error) setMsg(error.message.includes("duplicate")||error.code==="23505"?"Ese cupón ya está asignado a otra empresa.":"Error: "+error.message);
-    else{setMsg("");setCode("");setLabel("");load();}
+    else{setMsg("");setCode("");setLabel("");setReport(null);load();}
   }
   async function del(id){if(!ask("¿Quitar este cupón? La sincronización deja de contar sus sesiones para esta empresa."))return;await supabase.from("company_coupons").delete().eq("id",id);load();}
+
+  // Importar una lista. Las empresas con un cupón por persona pueden tener decenas, y
+  // cargarlos de a uno es inviable. Un código por línea; opcionalmente "codigo;etiqueta".
+  async function importCupones(file){
+    setImporting(true); setMsg(""); setReport(null);
+    try{
+      const text=(await file.text()).replace(/^\uFEFF/,"");
+      const vistos=new Set(); const parsed=[]; let repetidosEnArchivo=0;
+      for(const raw of text.split(/\r?\n/)){
+        const line=raw.trim(); if(!line) continue;
+        const i=[";",","].map(s=>line.indexOf(s)).filter(x=>x>=0).sort((a,b)=>a-b)[0];
+        const c=(i>=0?line.slice(0,i):line).replace(/^"|"$/g,"").trim();
+        const l=(i>=0?line.slice(i+1):"").replace(/^"|"$/g,"").trim();
+        if(!c) continue;
+        if(/^(cup[oó]n|cupones|c[oó]digo|code|coupon_code)$/i.test(c)) continue; // encabezado, no es un error
+        const k=c.toLowerCase();
+        if(vistos.has(k)){repetidosEnArchivo++;continue;}
+        vistos.add(k); parsed.push({coupon_code:c,label:l||null});
+      }
+      if(!parsed.length){setMsg("El archivo no tiene ningún código. Tiene que ser una lista de cupones, uno por línea.");setImporting(false);return;}
+      // coupon_code es único en TODA la tabla. Si uno ya es de otra empresa el insert falla y,
+      // en lote, se cae todo. Por eso se chequea antes y se informa cuál quedó afuera: un cupón
+      // que no entró y nadie vio es un cliente al que le faltan sesiones para siempre.
+      // La tabla es chica, así que se trae entera y se compara acá sin distinguir mayúsculas.
+      const {data:todos,error:qErr}=await supabase.from("company_coupons").select("coupon_code,company_id,companies(name)");
+      if(qErr) throw qErr;
+      const porCodigo=new Map((todos||[]).map(x=>[x.coupon_code.toLowerCase(),x]));
+      const nuevos=[],yaEstaban=[],deOtra=[];
+      for(const p of parsed){
+        const e=porCodigo.get(p.coupon_code.toLowerCase());
+        if(!e) nuevos.push(p);
+        else if(e.company_id===companyId) yaEstaban.push(p.coupon_code);
+        else deOtra.push(`${p.coupon_code} (${e.companies?.name||"otra empresa"})`);
+      }
+      if(nuevos.length){
+        const {error}=await supabase.from("company_coupons").insert(nuevos.map(n=>({company_id:companyId,coupon_code:n.coupon_code,label:n.label})));
+        if(error) throw error;
+      }
+      setReport({agregados:nuevos.length,yaEstaban,deOtra,repetidosEnArchivo,leidos:parsed.length});
+      setShowAll(true); load();
+    }catch(e){ setMsg("No se pudo importar: "+e.message); }
+    setImporting(false);
+  }
+
+  const VISIBLES=12;
+  const mostrados=showAll?rows:rows.slice(0,VISIBLES);
   return <div style={{padding:"12px 16px",background:P.lighter,borderRadius:10,marginBottom:12}}>
-    <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Cupones de la plataforma</div>
-    <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Las sesiones pagadas con estos cupones se cuentan para esta empresa. En el dash, cada cupón tiene su color en la barra de sesiones.</div>
+    <div style={{fontSize:13,fontWeight:600,color:P.text,marginBottom:2}}>Cupones de la plataforma{rows.length>0&&<span style={{fontWeight:400,color:P.textMuted}}> · {rows.length}</span>}</div>
+    <div style={{fontSize:11,color:P.textMuted,marginBottom:10}}>Las sesiones pagadas con estos cupones se cuentan para esta empresa. Hay empresas con un solo cupón para todos y otras con uno por persona: si son muchos, importá la lista en vez de cargarlos de a uno.</div>
     {msg&&<div style={{fontSize:11,color:P.red,marginBottom:8}}>{msg}</div>}
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+    <label style={{display:"flex",alignItems:"flex-start",gap:7,marginBottom:10,cursor:"pointer",background:P.white,border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 10px"}}>
+      <input type="checkbox" checked={perPerson} onChange={e=>togglePerPerson(e.target.checked)} style={{marginTop:2}}/>
+      <span style={{fontSize:11.5,color:P.text,lineHeight:1.5}}><b>Esta empresa usa un cupón por persona.</b>
+        <span style={{color:P.textMuted}}> Marcalo y el dash muestra el total de sesiones sin abrirlo por cupón. Sin marcar, la barra se parte en un color por cupón y el cliente ve cuántas sesiones hizo cada colaborador.</span></span>
+    </label>
+    {!perPerson&&rows.length>5&&<div style={{fontSize:11,color:P.red,background:P.redBg,border:`1px solid ${P.red}44`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+      Esta empresa tiene {rows.length} cupones y la casilla de arriba está sin marcar: el dash del cliente va a abrir la barra de sesiones en {rows.length} colores, uno por cupón. Si son cupones por persona, marcala.
+    </div>}
+    {report&&<div style={{fontSize:11,marginBottom:10,background:P.white,border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 10px"}}>
+      <div style={{color:P.text,fontWeight:600,marginBottom:3}}>Se leyeron {report.leidos} códigos · {report.agregados} agregados</div>
+      {report.yaEstaban.length>0&&<div style={{color:P.textMuted}}>{report.yaEstaban.length} ya estaban en esta empresa, no se duplicaron.</div>}
+      {report.repetidosEnArchivo>0&&<div style={{color:P.textMuted}}>{report.repetidosEnArchivo} venían repetidos dentro del archivo.</div>}
+      {report.deOtra.length>0&&<div style={{color:P.red,marginTop:3}}><b>{report.deOtra.length} NO se agregaron</b> porque ya están asignados a otra empresa: {report.deOtra.join(", ")}</div>}
+    </div>}
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
       {rows.length===0&&<span style={{fontSize:12,color:P.accent}}>Sin cupones: la sincronización no puede traer datos de esta empresa.</span>}
-      {rows.map(r=><span key={r.id} style={{display:"inline-flex",alignItems:"center",gap:6,background:P.white,border:`1px solid ${P.border}`,borderRadius:20,padding:"4px 6px 4px 12px",fontSize:12}}>
+      {mostrados.map(r=><span key={r.id} style={{display:"inline-flex",alignItems:"center",gap:6,background:P.white,border:`1px solid ${P.border}`,borderRadius:20,padding:"4px 6px 4px 12px",fontSize:12}}>
         <b style={{color:P.text}}>{r.coupon_code}</b>{r.label&&<span style={{color:P.textMuted}}>· {r.label}</span>}
         <button onClick={()=>del(r.id)} title="Quitar" style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
       </span>)}
+      {rows.length>VISIBLES&&<button onClick={()=>setShowAll(!showAll)} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:11.5,fontWeight:600,textDecoration:"underline",padding:"0 4px"}}>{showAll?"ver menos":`ver los ${rows.length-VISIBLES} restantes`}</button>}
     </div>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
       <div style={{width:200}}><Input label="Código" value={code} onChange={setCode} placeholder="ej. #bienestarbc"/></div>
       <div style={{width:200}}><Input label="Para qué es (opcional)" value={label} onChange={setLabel} placeholder="ej. caso particular"/></div>
       <div style={{marginBottom:12}}><Btn small onClick={add}>+ Agregar cupón</Btn></div>
+      <label style={{marginBottom:12,display:"inline-flex",alignItems:"center",gap:6,background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
+        {importing?"⏳ Importando...":"⬆ Importar lista"}
+        <input type="file" accept=".csv,.txt" style={{display:"none"}} disabled={importing} onChange={async e=>{const f=e.target.files[0]; if(f) await importCupones(f); e.target.value="";}}/>
+      </label>
     </div>
+    <div style={{fontSize:10.5,color:P.textMuted,marginTop:2}}>El archivo es un código por línea (CSV o txt). Si querés etiquetarlos, <code>codigo;etiqueta</code>. No pongas nombres de personas en la etiqueta.</div>
   </div>;
 }
 
