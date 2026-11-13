@@ -778,10 +778,13 @@ const ask=(m)=>IS_PREVIEW||window.confirm(m);
 const MES_ABBR=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 // Configuración → qué cupones de la plataforma son de esta empresa (los usa la sincronización)
+// Tipo de cada cupón: define el tono de verde en la barra de sesiones del dash (plan = el más intenso)
+const COUPON_KINDS=[{value:"plan",label:"Plan",color:"#307070"},{value:"particular",label:"Caso particular",color:"#6fa89c"},{value:"demo",label:"Demo",color:"#aed9b6"},{value:"familia",label:"Familia",color:"#cfe7d3"}];
 function CuponesEmpresa({ companyId }) {
   const [rows, setRows] = useState([]);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
+  const [kind, setKind] = useState("plan");
   const [msg, setMsg] = useState("");
   const [importing, setImporting] = useState(false);
   const [report, setReport] = useState(null);
@@ -805,9 +808,9 @@ function CuponesEmpresa({ companyId }) {
   }
   async function add(){
     const c=code.trim(); if(!c){setMsg("Escribí el código del cupón tal cual está en la plataforma.");return;}
-    const {error}=await supabase.from("company_coupons").insert([{company_id:companyId,coupon_code:c,label:label.trim()||null}]);
+    const {error}=await supabase.from("company_coupons").insert([{company_id:companyId,coupon_code:c,label:label.trim()||null,kind}]);
     if(error) setMsg(error.message.includes("duplicate")||error.code==="23505"?"Ese cupón ya está asignado a otra empresa.":"Error: "+error.message);
-    else{setMsg("");setCode("");setLabel("");setReport(null);load();}
+    else{setMsg("");setCode("");setLabel("");setKind("plan");setReport(null);load();}
   }
   async function del(id){if(!ask("¿Quitar este cupón? La sincronización deja de contar sus sesiones para esta empresa."))return;await supabase.from("company_coupons").delete().eq("id",id);load();}
 
@@ -877,13 +880,18 @@ function CuponesEmpresa({ companyId }) {
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
       {rows.length===0&&<span style={{fontSize:12,color:P.accent}}>Sin cupones: la sincronización no puede traer datos de esta empresa.</span>}
       {mostrados.map(r=><span key={r.id} style={{display:"inline-flex",alignItems:"center",gap:6,background:P.white,border:`1px solid ${P.border}`,borderRadius:20,padding:"4px 6px 4px 12px",fontSize:12}}>
+        <span title={(COUPON_KINDS.find(k=>k.value===(r.kind||"plan"))||COUPON_KINDS[0]).label} style={{width:10,height:10,borderRadius:"50%",background:(COUPON_KINDS.find(k=>k.value===(r.kind||"plan"))||COUPON_KINDS[0]).color,border:"1px solid #0002"}}/>
         <b style={{color:P.text}}>{r.coupon_code}</b>{r.label&&<span style={{color:P.textMuted}}>· {r.label}</span>}
+        <select value={r.kind||"plan"} onChange={async e=>{const v=e.target.value;const {error}=await supabase.from("company_coupons").update({kind:v}).eq("id",r.id);if(error)setMsg("No se pudo cambiar el tipo: "+error.message);else load();}} title="Tipo de cupón" style={{fontSize:11,border:`1px solid ${P.border}`,borderRadius:6,padding:"1px 4px",background:P.white,color:P.textMuted}}>
+          {COUPON_KINDS.map(k=><option key={k.value} value={k.value}>{k.label}</option>)}
+        </select>
         <button onClick={()=>del(r.id)} title="Quitar" style={{background:"none",border:"none",color:P.red,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
       </span>)}
       {rows.length>VISIBLES&&<button onClick={()=>setShowAll(!showAll)} style={{background:"none",border:"none",color:P.accent,cursor:"pointer",fontSize:11.5,fontWeight:600,textDecoration:"underline",padding:"0 4px"}}>{showAll?"ver menos":`ver los ${rows.length-VISIBLES} restantes`}</button>}
     </div>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
       <div style={{width:200}}><Input label="Código" value={code} onChange={setCode} placeholder="ej. #bienestarbc"/></div>
+      <div style={{width:150}}><Select label="Tipo" value={kind} onChange={setKind} options={COUPON_KINDS.map(k=>({value:k.value,label:k.label}))}/></div>
       <div style={{width:200}}><Input label="Para qué es (opcional)" value={label} onChange={setLabel} placeholder="ej. caso particular"/></div>
       <div style={{marginBottom:12}}><Btn small onClick={add}>+ Agregar cupón</Btn></div>
       <label style={{marginBottom:12,display:"inline-flex",alignItems:"center",gap:6,background:P.accentBg,color:P.accent,border:`1px solid ${P.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
@@ -892,6 +900,7 @@ function CuponesEmpresa({ companyId }) {
       </label>
     </div>
     <div style={{fontSize:10.5,color:P.textMuted,marginTop:2}}>El archivo es un código por línea (CSV o txt). Si querés etiquetarlos, <code>codigo;etiqueta</code>. No pongas nombres de personas en la etiqueta.</div>
+    <div style={{fontSize:10.5,color:P.textMuted,marginTop:4}}>Comodín: <code>%</code> reemplaza cualquier texto. <code>#microlab%</code> = todos los que empiezan con #microlab; <code>%ISA</code> = todos los que terminan en ISA. La sincronización (en modo prueba) muestra qué códigos reales encontró cada comodín. En el dash, cada tipo tiene su tono de verde: el plan es el más intenso.</div>
   </div>;
 }
 
@@ -1056,12 +1065,13 @@ function SincronizacionView() {
       </div>
       {msg&&<div style={{fontSize:12,color:P.red,marginTop:10}}>{msg}</div>}
       {result&&<div style={{marginTop:14,borderTop:`1px solid ${P.border}`,paddingTop:12}}>
-        <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · motivos al {result.periodLabel}</div>
+        <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · meses desde {result.from||"2026-01"} · motivos al {result.periodLabel}</div>
         {result.companies.map(c=><div key={c.company} style={{padding:"8px 0",borderBottom:`1px solid ${P.border}`,fontSize:12}}>
           <b style={{color:P.text}}>{c.company}</b>{" "}
           {c.skipped?<span style={{color:P.accent}}>· {c.skipped} (cargalos en Configuración)</span>
            :<span style={{color:P.textMuted}}>· {c.months} meses · {c.reasons} motivos · {c.diffCount===0?"coincide con lo cargado ✓":`${c.diffCount} diferencias con lo cargado`}</span>}
           {c.unknownCodes?.length>0&&<div style={{color:P.red}}>Estos cupones no existen en la plataforma: {c.unknownCodes.join(", ")}</div>}
+          {c.matched&&Object.entries(c.matched).map(([pat,list])=><div key={pat} style={{color:P.accent}}>Comodín <b>{pat}</b> encontró {list.length}: {list.slice(0,15).join(", ")}{list.length>15?` y ${list.length-15} más`:""}</div>)}
           {c.diffs?.length>0&&<table style={{marginTop:6,borderCollapse:"collapse",fontSize:11.5}}><tbody>
             {c.diffs.slice(0,10).map((d,i)=><tr key={i}><td style={{padding:"2px 10px 2px 0",color:P.textMuted}}>{d.month}</td><td style={{padding:"2px 10px 2px 0"}}>{FIELD[d.field]||d.field}</td><td style={{padding:"2px 10px 2px 0"}}>cargado: <b>{d.loaded??"—"}</b></td><td>plataforma: <b>{d.mysql}</b></td></tr>)}
           </tbody></table>}
