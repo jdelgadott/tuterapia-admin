@@ -7,6 +7,7 @@ export const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "
 const key = (y, m) => `${y}-${m}`;
 
 // Sesiones de la empresa = sesiones pagadas con un pago en el que se usó alguno de sus cupones.
+// `?` recibe la lista de códigos REALES de la empresa (los comodines ya resueltos, ver resolveCodes).
 const COMPANY_SESSIONS = `
   SELECT DISTINCT s.id, s.id_paciente, s.fecha, s.realizada, s.tipo_session, c.codigo
   FROM sesiones s
@@ -15,16 +16,37 @@ const COMPANY_SESSIONS = `
   WHERE c.codigo IN (?)`;
 
 /**
+ * Traduce los cupones cargados en el admin a los códigos reales de la plataforma.
+ * - "#bienestarQ"  → exacto (sin distinguir mayúsculas; se ignoran espacios de más)
+ * - "#microlab%"   → comodín: todos los que empiezan con #microlab ("%" = cualquier texto)
+ * @param entries [{coupon_code, kind}]
+ * @returns { codes: [codigo real], kindOf: {codigo: kind}, unknown: [cargados sin match], matched: {comodín: [códigos]} }
+ */
+export async function resolveCodes(conn, entries) {
+  const kindOf = {}, unknown = [], matched = {};
+  for (const e of entries) {
+    const code = String(e.coupon_code || "").trim();
+    if (!code) continue;
+    const isPattern = code.includes("%");
+    const [rows] = await conn.query(
+      isPattern ? "SELECT codigo FROM cupones WHERE TRIM(codigo) LIKE ?" : "SELECT codigo FROM cupones WHERE TRIM(codigo) = ?", [code]);
+    if (!rows.length) { unknown.push(code); continue; }
+    if (isPattern) matched[code] = rows.map((r) => r.codigo);
+    // Un código exacto gana sobre un comodín (ej. #BienestarMicrolab no es un caso particular de #microlab%)
+    for (const r of rows) if (!kindOf[r.codigo] || !isPattern) kindOf[r.codigo] = e.kind || "plan";
+  }
+  return { codes: Object.keys(kindOf), kindOf, unknown, matched };
+}
+
+/**
  * Calcula los totales de UNA empresa.
  * @param conn    conexión mysql2/promise
  * @param codes   códigos de cupón de la empresa (company_coupons.coupon_code)
  * @param today   fecha de corte (el mes en curso queda marcado como parcial)
  */
-export async function computeCompany(conn, codes, today = new Date()) {
-  if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes: [] };
-
-  const [found] = await conn.query("SELECT codigo FROM cupones WHERE codigo IN (?)", [codes]);
-  const unknownCodes = codes.filter((c) => !found.some((f) => f.codigo === c));
+export async function computeCompany(conn, entries, today = new Date(), fromYM = null) {
+  const { codes, kindOf, unknown: unknownCodes, matched } = await resolveCodes(conn, entries);
+  if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes, matched };
 
   // 1. Sesiones por mes y por cupón (canjeadas = sesiones pagadas con el cupón; realizadas = realizada=1)
   const [byCoupon] = await conn.query(
@@ -66,16 +88,21 @@ export async function computeCompany(conn, codes, today = new Date()) {
 
   const curY = today.getFullYear(), curM = today.getMonth() + 1;
   let hist = 0;
+  // El total histórico se acumula desde la primera sesión (personas únicas desde el inicio),
+  // pero solo se DEVUELVEN los meses desde `fromYM` (ej. 2026-01): lo anterior cargado no se pisa.
+  const from = fromYM ? fromYM.y * 100 + fromYM.m : 0;
+  const ym = (y, m) => Number(y) * 100 + Number(m);
   const months = [...all.values()]
     .sort((a, b) => a.year - b.year || a.monthNum - b.monthNum)
     .filter((x) => x.year < curY || (x.year === curY && x.monthNum <= curM))
-    .map((x) => { hist += x.nuevos; return { ...x, month: MONTHS[x.monthNum - 1], total_historico: hist, partial: x.year === curY && x.monthNum === curM }; });
+    .map((x) => { hist += x.nuevos; return { ...x, month: MONTHS[x.monthNum - 1], total_historico: hist, partial: x.year === curY && x.monthNum === curM }; })
+    .filter((x) => ym(x.year, x.monthNum) >= from);
 
   const coupons = byCoupon
-    .filter((r) => Number(r.y) < curY || (Number(r.y) === curY && Number(r.m) <= curM))
-    .map((r) => ({ year: Number(r.y), month: MONTHS[Number(r.m) - 1], coupon_code: r.codigo, sessions: Number(r.canjeadas) }));
+    .filter((r) => (Number(r.y) < curY || (Number(r.y) === curY && Number(r.m) <= curM)) && ym(r.y, r.m) >= from)
+    .map((r) => ({ year: Number(r.y), month: MONTHS[Number(r.m) - 1], coupon_code: r.codigo, kind: kindOf[r.codigo] || "plan", sessions: Number(r.canjeadas) }));
 
-  return { months, coupons, reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })), unknownCodes };
+  return { months, coupons, reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })), unknownCodes, matched };
 }
 
 /** Compara lo que trae la MySQL contra lo que hoy está cargado en sessions_data. */
