@@ -19,6 +19,7 @@ const DEADLINE_MS = 48000;
 export default async function handler(req, res) {
   const env = process.env;
   const startedAt = Date.now();
+  const log = (m) => console.log(`[sync +${((Date.now() - startedAt) / 1000).toFixed(1)}s] ${m}`);
   const sb = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
 
   // ── 1. Quién llama: el cron (CRON_SECRET) o alguien del equipo (sesión de admin_users) ──
@@ -55,8 +56,12 @@ export default async function handler(req, res) {
       connectTimeout: 10000, dateStrings: false, charset: "utf8mb4",
     });
     await conn.query("SET SESSION TRANSACTION READ ONLY");
+    // Las trazas van por consola además de por el informe: si la función igual se corta,
+    // el informe se pierde entero pero esto queda en los logs de Vercel y dice hasta dónde llegó.
+    log("conectado a la plataforma");
     // Los códigos de la plataforma se leen UNA vez para todas las empresas (ver resolveCodes).
     const platformCodes = await loadPlatformCodes(conn);
+    log(`códigos de la plataforma: ${platformCodes.length}`);
 
     // ── 2. Empresas y sus cupones (cargados en el admin) ──
     const { data: links, error: lErr } = await sb.from("company_coupons").select("company_id, coupon_code, kind");
@@ -79,7 +84,9 @@ export default async function handler(req, res) {
       if (!dryRun) await writeCompany(sb, co.id, data, periodLabel);
       report.push({ company: co.name, codes: codes.map((c) => c.coupon_code), unknownCodes: data.unknownCodes, matched: data.matched, months: data.months.length,
         last: data.months.at(-1) || null, reasons: data.reasons.length, diffs: diffs.slice(0, 200), diffCount: diffs.length, ms: Date.now() - t0 });
+      log(`${co.name}: ${((Date.now() - t0) / 1000).toFixed(1)}s (${data.codes?.length ?? codes.length} códigos, ${data.months.length} meses)`);
     }
+    if (pending.length) log(`sin tiempo para: ${pending.join(", ")}`);
 
     const summary = { dryRun, periodLabel, from: `${fromYM.y}-${String(fromYM.m).padStart(2, "0")}`, companies: report,
       ms: Date.now() - startedAt, pending: pending.length ? pending : undefined };

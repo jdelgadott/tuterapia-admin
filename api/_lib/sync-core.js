@@ -73,7 +73,7 @@ export function resolveCodes(platformCodes, entries) {
  */
 export async function computeCompany(conn, entries, today = new Date(), fromYM = null, platformCodes = []) {
   const { codes, kindOf, unknown: unknownCodes, matched } = resolveCodes(platformCodes, entries);
-  if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes, matched };
+  if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes, matched, codes };
 
   // 1. Sesiones por mes y por cupón (canjeadas = sesiones pagadas con el cupón; realizadas = realizada=1)
   const [byCoupon] = await conn.query(
@@ -129,7 +129,7 @@ export async function computeCompany(conn, entries, today = new Date(), fromYM =
     .filter((r) => (Number(r.y) < curY || (Number(r.y) === curY && Number(r.m) <= curM)) && ym(r.y, r.m) >= from)
     .map((r) => ({ year: Number(r.y), month: MONTHS[Number(r.m) - 1], coupon_code: r.codigo, kind: kindOf[r.codigo] || "plan", sessions: Number(r.canjeadas) }));
 
-  return { months, coupons, reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })), unknownCodes, matched };
+  return { months, coupons, reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })), unknownCodes, matched, codes };
 }
 
 /** Compara lo que trae la MySQL contra lo que hoy está cargado en sessions_data. */
