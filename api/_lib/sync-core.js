@@ -15,25 +15,52 @@ const COMPANY_SESSIONS = `
   JOIN cupones c ON c.id = pc.id_cupon
   WHERE c.codigo IN (?)`;
 
+/** Lee UNA vez el listado de códigos de la plataforma. Ver resolveCodes para por qué. */
+export async function loadPlatformCodes(conn) {
+  const [rows] = await conn.query("SELECT codigo FROM cupones");
+  return rows.map((r) => String(r.codigo ?? ""));
+}
+
+// "#microlab%" → /^#microlab[\s\S]*$/i. Primero se escapan los caracteres especiales de regex
+// (ni "%" ni "_" lo son, así que sobreviven) y recién después se traducen los comodines.
+const likeToRegExp = (pat) =>
+  new RegExp("^" + pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, "[\\s\\S]*").replace(/_/g, "[\\s\\S]") + "$", "i");
+
 /**
  * Traduce los cupones cargados en el admin a los códigos reales de la plataforma.
  * - "#bienestarQ"  → exacto (sin distinguir mayúsculas; se ignoran espacios de más)
  * - "#microlab%"   → comodín: todos los que empiezan con #microlab ("%" = cualquier texto)
+ *
+ * El match se hace acá en memoria, no en la plataforma. Antes era una consulta por cupón:
+ * 65 cupones = 65 viajes de ida y vuelta, y encima `WHERE TRIM(codigo) = ?` no puede usar el
+ * índice de `codigo`, así que cada uno recorría la tabla entera. Eso solo se comía buena parte
+ * del minuto que Vercel le da a la función. Ahora `cupones` se lee UNA vez (loadPlatformCodes).
+ *
+ * Mismo criterio que LIKE: no distingue mayúsculas, "%" = cualquier texto, "_" = un carácter.
+ * El "_" vale como comodín SOLO dentro de un código que ya trae "%" — en un código exacto sigue
+ * siendo un guión bajo literal, igual que antes con "=". Única diferencia con la plataforma:
+ * los acentos. MySQL con collation _ai_ci da "á" = "a" y acá no. Hoy ningún cupón tiene acentos.
+ *
+ * @param platformCodes códigos reales de la plataforma (loadPlatformCodes)
  * @param entries [{coupon_code, kind}]
  * @returns { codes: [codigo real], kindOf: {codigo: kind}, unknown: [cargados sin match], matched: {comodín: [códigos]} }
  */
-export async function resolveCodes(conn, entries) {
+export function resolveCodes(platformCodes, entries) {
+  // Se guarda el código tal cual viene (`raw`): es el que después viaja en `WHERE c.codigo IN (?)`.
+  // No se puede deduplicar por minúsculas porque dos códigos que solo difieren en mayúsculas son dos.
+  const all = platformCodes.map((c) => ({ raw: String(c ?? ""), trimmed: String(c ?? "").trim() })).filter((c) => c.trimmed);
   const kindOf = {}, unknown = [], matched = {};
   for (const e of entries) {
     const code = String(e.coupon_code || "").trim();
     if (!code) continue;
     const isPattern = code.includes("%");
-    const [rows] = await conn.query(
-      isPattern ? "SELECT codigo FROM cupones WHERE TRIM(codigo) LIKE ?" : "SELECT codigo FROM cupones WHERE TRIM(codigo) = ?", [code]);
-    if (!rows.length) { unknown.push(code); continue; }
-    if (isPattern) matched[code] = rows.map((r) => r.codigo);
+    const rx = isPattern ? likeToRegExp(code) : null;
+    const low = code.toLowerCase();
+    const hits = all.filter((c) => (isPattern ? rx.test(c.trimmed) : c.trimmed.toLowerCase() === low));
+    if (!hits.length) { unknown.push(code); continue; }
+    if (isPattern) matched[code] = hits.map((c) => c.raw);
     // Un código exacto gana sobre un comodín (ej. #BienestarMicrolab no es un caso particular de #microlab%)
-    for (const r of rows) if (!kindOf[r.codigo] || !isPattern) kindOf[r.codigo] = e.kind || "plan";
+    for (const c of hits) if (!kindOf[c.raw] || !isPattern) kindOf[c.raw] = e.kind || "plan";
   }
   return { codes: Object.keys(kindOf), kindOf, unknown, matched };
 }
@@ -44,8 +71,8 @@ export async function resolveCodes(conn, entries) {
  * @param codes   códigos de cupón de la empresa (company_coupons.coupon_code)
  * @param today   fecha de corte (el mes en curso queda marcado como parcial)
  */
-export async function computeCompany(conn, entries, today = new Date(), fromYM = null) {
-  const { codes, kindOf, unknown: unknownCodes, matched } = await resolveCodes(conn, entries);
+export async function computeCompany(conn, entries, today = new Date(), fromYM = null, platformCodes = []) {
+  const { codes, kindOf, unknown: unknownCodes, matched } = resolveCodes(platformCodes, entries);
   if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes, matched };
 
   // 1. Sesiones por mes y por cupón (canjeadas = sesiones pagadas con el cupón; realizadas = realizada=1)
