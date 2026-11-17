@@ -8,10 +8,17 @@
 //   Lo cargado antes de ese mes no se toca.
 import mysql from "mysql2/promise";
 import { createClient } from "@supabase/supabase-js";
-import { computeCompany, diffMonths, writeCompany, MONTHS } from "./_lib/sync-core.js";
+import { computeCompany, diffMonths, writeCompany, loadPlatformCodes, MONTHS } from "./_lib/sync-core.js";
+
+// Vercel corta la función a los 60s (vercel.json). Si se corta sola, el informe se pierde y,
+// en modo real, quedan unas empresas escritas y otras no SIN que nadie se entere: la fila de
+// sync_runs se queda en "En curso" para siempre. Por eso se frena antes, por las buenas:
+// no se arranca una empresa nueva pasado este tiempo y se devuelve el informe de lo que sí se hizo.
+const DEADLINE_MS = 48000;
 
 export default async function handler(req, res) {
   const env = process.env;
+  const startedAt = Date.now();
   const sb = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
 
   // ── 1. Quién llama: el cron (CRON_SECRET) o alguien del equipo (sesión de admin_users) ──
@@ -48,6 +55,8 @@ export default async function handler(req, res) {
       connectTimeout: 10000, dateStrings: false, charset: "utf8mb4",
     });
     await conn.query("SET SESSION TRANSACTION READ ONLY");
+    // Los códigos de la plataforma se leen UNA vez para todas las empresas (ver resolveCodes).
+    const platformCodes = await loadPlatformCodes(conn);
 
     // ── 2. Empresas y sus cupones (cargados en el admin) ──
     const { data: links, error: lErr } = await sb.from("company_coupons").select("company_id, coupon_code, kind");
@@ -58,19 +67,23 @@ export default async function handler(req, res) {
 
     // ── 3. Calcular, comparar y (si no es prueba) escribir ──
     const report = [];
+    const pending = [];
     for (const co of companies || []) {
       const codes = byCompany[co.id] || [];
       if (!codes.length) { report.push({ company: co.name, skipped: "Sin cupones asignados" }); continue; }
-      const data = await computeCompany(conn, codes, today, fromYM);
+      if (Date.now() - startedAt > DEADLINE_MS) { pending.push(co.name); continue; }
+      const t0 = Date.now();
+      const data = await computeCompany(conn, codes, today, fromYM, platformCodes);
       const { data: loaded } = await sb.from("sessions_data").select("month, year, canjeadas, realizadas, activos, nuevos, total_historico, primera_vez").eq("company_id", co.id);
       const diffs = diffMonths(data.months, loaded || []);
       if (!dryRun) await writeCompany(sb, co.id, data, periodLabel);
       report.push({ company: co.name, codes: codes.map((c) => c.coupon_code), unknownCodes: data.unknownCodes, matched: data.matched, months: data.months.length,
-        last: data.months.at(-1) || null, reasons: data.reasons.length, diffs: diffs.slice(0, 200), diffCount: diffs.length });
+        last: data.months.at(-1) || null, reasons: data.reasons.length, diffs: diffs.slice(0, 200), diffCount: diffs.length, ms: Date.now() - t0 });
     }
 
-    const summary = { dryRun, periodLabel, from: `${fromYM.y}-${String(fromYM.m).padStart(2, "0")}`, companies: report };
-    if (runId) await sb.from("sync_runs").update({ status: "ok", finished_at: new Date().toISOString(), summary }).eq("id", runId);
+    const summary = { dryRun, periodLabel, from: `${fromYM.y}-${String(fromYM.m).padStart(2, "0")}`, companies: report,
+      ms: Date.now() - startedAt, pending: pending.length ? pending : undefined };
+    if (runId) await sb.from("sync_runs").update({ status: pending.length ? "incompleto" : "ok", finished_at: new Date().toISOString(), summary }).eq("id", runId);
     return res.status(200).json({ ok: true, ...summary });
   } catch (e) {
     const msg = String(e?.message || e).replace(/password=\S+/gi, "password=***");

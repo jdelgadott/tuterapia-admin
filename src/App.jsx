@@ -1065,11 +1065,17 @@ function SincronizacionView() {
       </div>
       {msg&&<div style={{fontSize:12,color:P.red,marginTop:10}}>{msg}</div>}
       {result&&<div style={{marginTop:14,borderTop:`1px solid ${P.border}`,paddingTop:12}}>
-        <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · meses desde {result.from||"2026-01"} · motivos al {result.periodLabel}</div>
+        <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · meses desde {result.from||"2026-01"} · motivos al {result.periodLabel}{result.ms?` · ${(result.ms/1000).toFixed(1)}s`:""}</div>
+        {/* Vercel corta a los 60s. Si no llegó a todas, hay que decirlo fuerte: en modo real
+            significa que unas empresas quedaron actualizadas y otras con los datos viejos. */}
+        {result.pending?.length>0&&<div style={{fontSize:12,color:P.red,fontWeight:700,marginBottom:8,lineHeight:1.5}}>
+          No llegó a procesar {result.pending.length} empresa{result.pending.length>1?"s":""} por falta de tiempo: {result.pending.join(", ")}.
+          {!result.dryRun&&" Las demás SÍ se actualizaron, así que los datos quedaron mezclados: volvé a sincronizar."}
+        </div>}
         {result.companies.map(c=><div key={c.company} style={{padding:"8px 0",borderBottom:`1px solid ${P.border}`,fontSize:12}}>
           <b style={{color:P.text}}>{c.company}</b>{" "}
           {c.skipped?<span style={{color:P.accent}}>· {c.skipped} (cargalos en Configuración)</span>
-           :<span style={{color:P.textMuted}}>· {c.months} meses · {c.reasons} motivos · {c.diffCount===0?"coincide con lo cargado ✓":`${c.diffCount} diferencias con lo cargado`}</span>}
+           :<span style={{color:P.textMuted}}>· {c.months} meses · {c.reasons} motivos · {c.diffCount===0?"coincide con lo cargado ✓":`${c.diffCount} diferencias con lo cargado`}{c.ms?` · ${(c.ms/1000).toFixed(1)}s`:""}</span>}
           {c.unknownCodes?.length>0&&<div style={{color:P.red}}>Estos cupones no existen en la plataforma: {c.unknownCodes.join(", ")}</div>}
           {c.matched&&Object.entries(c.matched).map(([pat,list])=><div key={pat} style={{color:P.accent}}>Comodín <b>{pat}</b> encontró {list.length}: {list.slice(0,15).join(", ")}{list.length>15?` y ${list.length-15} más`:""}</div>)}
           {c.diffs?.length>0&&<table style={{marginTop:6,borderCollapse:"collapse",fontSize:11.5}}><tbody>
@@ -1081,7 +1087,8 @@ function SincronizacionView() {
     <SectionTitle>Últimas corridas</SectionTitle>
     {runs.length===0?<div style={{fontSize:12,color:P.textMuted}}>Todavía no corrió.</div>:
     <div style={{display:"flex",flexDirection:"column",gap:6}}>{runs.map(r=><div key={r.id} style={{display:"flex",gap:12,fontSize:12,background:P.white,border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 12px",flexWrap:"wrap"}}>
-      <span style={{color:r.status==="ok"?P.primary:r.status==="error"?P.red:P.accent,fontWeight:700}}>{r.status==="ok"?"✓ OK":r.status==="error"?"✕ Error":"… En curso"}</span>
+      <span style={{color:r.status==="ok"?P.primary:r.status==="error"?P.red:P.accent,fontWeight:700}}>{r.status==="ok"?"✓ OK":r.status==="error"?"✕ Error":r.status==="incompleto"?"⚠ Incompleta":"… En curso"}</span>
+      {r.summary?.pending?.length>0&&<span style={{color:P.red}}>quedaron sin actualizar: {r.summary.pending.join(", ")}</span>}
       <span style={{color:P.text}}>{new Date(r.started_at).toLocaleString("es-UY")}</span>
       <span style={{color:P.textMuted}}>{r.trigger==="cron"?"automática":"manual"}{r.dry_run?" · prueba":""}</span>
       {r.error&&<span style={{color:P.red}}>{r.error}</span>}
