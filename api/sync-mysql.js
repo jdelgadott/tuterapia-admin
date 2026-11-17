@@ -66,7 +66,12 @@ export default async function handler(req, res) {
     // ── 2. Empresas y sus cupones (cargados en el admin) ──
     const { data: links, error: lErr } = await sb.from("company_coupons").select("company_id, coupon_code, kind");
     if (lErr) throw new Error(`company_coupons: ${lErr.message}`);
-    const { data: companies } = await sb.from("companies").select("id, name");
+    // Con ?company=<id> se sincroniza una sola empresa. Hasta que los totales dejen de tardar
+    // ~20s por empresa es la única forma de mirar una en particular sin que la función muera.
+    const onlyId = String(req.query?.company || "");
+    let q = sb.from("companies").select("id, name");
+    if (onlyId) q = q.eq("id", onlyId);
+    const { data: companies } = await q;
     const byCompany = {};
     for (const l of links || []) (byCompany[l.company_id] = byCompany[l.company_id] || []).push({ coupon_code: l.coupon_code, kind: l.kind || "plan" });
 

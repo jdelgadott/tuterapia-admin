@@ -1032,8 +1032,11 @@ function SincronizacionView() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [msg, setMsg] = useState("");
-  useEffect(()=>{ load(); },[]);
+  const [empresas, setEmpresas] = useState([]);
+  const [only, setOnly] = useState("");
+  useEffect(()=>{ load(); loadEmpresas(); },[]);
   async function load(){const {data}=await supabase.from("sync_runs").select("*").order("started_at",{ascending:false}).limit(15);setRuns(data||[]);}
+  async function loadEmpresas(){const {data}=await supabase.from("companies").select("id,name").order("name");setEmpresas(data||[]);}
   async function run(){
     setRunning(true);setMsg("");setResult(null);
     try{
@@ -1042,7 +1045,7 @@ function SincronizacionView() {
         setResult({dryRun:true,periodLabel:"Oct 2026",companies:[{company:"Empresa Demo",codes:["#bienestardemo","#demoparticular"],unknownCodes:[],months:14,reasons:15,diffCount:1,diffs:[{month:"Oct 2026",field:"nuevos",loaded:3,mysql:4}]}]});
       } else {
         const {data:{session}}=await supabase.auth.getSession();
-        const r=await fetch("/api/sync-mysql",{method:"POST",headers:{Authorization:`Bearer ${session?.access_token}`}});
+        const r=await fetch(`/api/sync-mysql${only?`?company=${encodeURIComponent(only)}`:""}`,{method:"POST",headers:{Authorization:`Bearer ${session?.access_token}`}});
         const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||`Error ${r.status}`);
         setResult(j);
       }
@@ -1060,6 +1063,15 @@ function SincronizacionView() {
         <div style={{flex:1,minWidth:220}}>
           <div style={{fontSize:14,fontWeight:700,color:P.text}}>Sincronizar ahora</div>
           <div style={{fontSize:11,color:P.textMuted}}>En modo prueba calcula y compara contra lo cargado, sin cambiar nada.</div>
+          {/* Los totales tardan ~20s por empresa y la función se corta a los 60s, así que una
+              corrida completa no llega a todas. Para mirar una en particular, se elige acá. */}
+          <div style={{fontSize:11,color:P.textMuted,marginTop:6}}>
+            Empresa:{" "}
+            <select value={only} onChange={e=>setOnly(e.target.value)} style={{fontSize:11,padding:"3px 6px",border:`1px solid ${P.border}`,borderRadius:6,color:P.text}}>
+              <option value="">todas (hasta donde alcance el tiempo)</option>
+              {empresas.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
         </div>
         <Btn onClick={run} disabled={running}>{running?"Sincronizando…":"Sincronizar ahora"}</Btn>
       </div>
