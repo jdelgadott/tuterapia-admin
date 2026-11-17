@@ -66,13 +66,14 @@ export function resolveCodes(platformCodes, entries) {
 }
 
 /**
- * Calcula los totales de UNA empresa.
- * @param conn    conexión mysql2/promise
- * @param codes   códigos de cupón de la empresa (company_coupons.coupon_code)
- * @param today   fecha de corte (el mes en curso queda marcado como parcial)
+ * Calcula los totales de UNA empresa. Es la parte cara: cuatro consultas que repiten el mismo
+ * JOIN sobre `sesiones`. Medido en producción, ~20s por empresa.
+ * @param conn      conexión mysql2/promise
+ * @param resolved  salida de resolveCodes para esta empresa
+ * @param today     fecha de corte (el mes en curso queda marcado como parcial)
  */
-export async function computeCompany(conn, entries, today = new Date(), fromYM = null, platformCodes = []) {
-  const { codes, kindOf, unknown: unknownCodes, matched } = resolveCodes(platformCodes, entries);
+export async function computeCompany(conn, resolved, today = new Date(), fromYM = null) {
+  const { codes, kindOf, unknown: unknownCodes, matched } = resolved;
   if (!codes.length) return { months: [], coupons: [], reasons: [], unknownCodes, matched, codes };
 
   // 1. Sesiones por mes y por cupón (canjeadas = sesiones pagadas con el cupón; realizadas = realizada=1)

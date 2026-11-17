@@ -8,7 +8,7 @@
 //   Lo cargado antes de ese mes no se toca.
 import mysql from "mysql2/promise";
 import { createClient } from "@supabase/supabase-js";
-import { computeCompany, diffMonths, writeCompany, loadPlatformCodes, MONTHS } from "./_lib/sync-core.js";
+import { computeCompany, diffMonths, writeCompany, loadPlatformCodes, resolveCodes, MONTHS } from "./_lib/sync-core.js";
 
 // Vercel corta la función a los 60s (vercel.json). Si se corta sola, el informe se pierde y,
 // en modo real, quedan unas empresas escritas y otras no SIN que nadie se entere: la fila de
@@ -70,26 +70,54 @@ export default async function handler(req, res) {
     const byCompany = {};
     for (const l of links || []) (byCompany[l.company_id] = byCompany[l.company_id] || []).push({ coupon_code: l.coupon_code, kind: l.kind || "plan" });
 
-    // ── 3. Calcular, comparar y (si no es prueba) escribir ──
-    const report = [];
-    const pending = [];
+    // ── 3a. Primero lo barato: traducir los cupones de TODAS las empresas ──
+    // Es solo comparar textos en memoria, así que entra siempre. Y es lo que contesta las dos
+    // preguntas que importan antes de habilitar la escritura: qué cupones cargados no existen
+    // en la plataforma y qué se llevó puesto cada comodín. Va antes de los totales a propósito:
+    // aunque la función se quede sin tiempo, esta parte del informe siempre llega.
+    const tasks = [], report = [];
     for (const co of companies || []) {
-      const codes = byCompany[co.id] || [];
-      if (!codes.length) { report.push({ company: co.name, skipped: "Sin cupones asignados" }); continue; }
-      if (Date.now() - startedAt > DEADLINE_MS) { pending.push(co.name); continue; }
-      const t0 = Date.now();
-      const data = await computeCompany(conn, codes, today, fromYM, platformCodes);
-      const { data: loaded } = await sb.from("sessions_data").select("month, year, canjeadas, realizadas, activos, nuevos, total_historico, primera_vez").eq("company_id", co.id);
-      const diffs = diffMonths(data.months, loaded || []);
-      if (!dryRun) await writeCompany(sb, co.id, data, periodLabel);
-      report.push({ company: co.name, codes: codes.map((c) => c.coupon_code), unknownCodes: data.unknownCodes, matched: data.matched, months: data.months.length,
-        last: data.months.at(-1) || null, reasons: data.reasons.length, diffs: diffs.slice(0, 200), diffCount: diffs.length, ms: Date.now() - t0 });
-      log(`${co.name}: ${((Date.now() - t0) / 1000).toFixed(1)}s (${data.codes?.length ?? codes.length} códigos, ${data.months.length} meses)`);
+      const entries = byCompany[co.id] || [];
+      if (!entries.length) { report.push({ company: co.name, skipped: "Sin cupones asignados" }); continue; }
+      const resolved = resolveCodes(platformCodes, entries);
+      const row = { company: co.name, codes: entries.map((c) => c.coupon_code), unknownCodes: resolved.unknown, matched: resolved.matched, realCodes: resolved.codes.length };
+      report.push(row);
+      tasks.push({ co, resolved, row });
     }
-    if (pending.length) log(`sin tiempo para: ${pending.join(", ")}`);
+
+    // Un código de la plataforma tiene que ser de UNA empresa sola. El unique de company_coupons
+    // lo garantiza para los códigos escritos a mano, pero los comodines lo esquivan: dos empresas
+    // pueden terminar reclamando el mismo cupón real y nadie se entera. Acá se chequea.
+    const owners = {};
+    for (const t of tasks) for (const c of t.resolved.codes) (owners[c] = owners[c] || []).push(t.co.name);
+    const conflicts = Object.entries(owners).filter(([, list]) => new Set(list).size > 1)
+      .map(([code, list]) => ({ code, companies: [...new Set(list)] }));
+    if (conflicts.length) log(`cupones reclamados por mas de una empresa: ${conflicts.map((c) => c.code).join(", ")}`);
+    log(`cupones traducidos: ${tasks.length} empresas, ${Object.keys(owners).length} codigos reales`);
+
+    // ── 3b. Después lo caro: totales, comparación y (si no es prueba) escritura ──
+    // No se arranca una empresa nueva si no entra en lo que queda: se mide cuánto tardó la más
+    // lenta hasta ahora y se deja ese margen. Si no, la función muere a los 60s y se pierde todo.
+    const pending = [];
+    let slowest = 0;
+    for (const t of tasks) {
+      const left = DEADLINE_MS - (Date.now() - startedAt);
+      if (left < slowest + 5000) { pending.push(t.co.name); continue; }
+      const t0 = Date.now();
+      const data = await computeCompany(conn, t.resolved, today, fromYM);
+      const { data: loaded } = await sb.from("sessions_data").select("month, year, canjeadas, realizadas, activos, nuevos, total_historico, primera_vez").eq("company_id", t.co.id);
+      const diffs = diffMonths(data.months, loaded || []);
+      if (!dryRun) await writeCompany(sb, t.co.id, data, periodLabel);
+      const ms = Date.now() - t0;
+      slowest = Math.max(slowest, ms);
+      Object.assign(t.row, { months: data.months.length, last: data.months.at(-1) || null, reasons: data.reasons.length,
+        diffs: diffs.slice(0, 200), diffCount: diffs.length, ms });
+      log(`${t.co.name}: ${(ms / 1000).toFixed(1)}s (${data.codes.length} codigos, ${data.months.length} meses)`);
+    }
+    if (pending.length) log(`sin tiempo para ${pending.length}: ${pending.join(", ")}`);
 
     const summary = { dryRun, periodLabel, from: `${fromYM.y}-${String(fromYM.m).padStart(2, "0")}`, companies: report,
-      ms: Date.now() - startedAt, pending: pending.length ? pending : undefined };
+      ms: Date.now() - startedAt, pending: pending.length ? pending : undefined, conflicts: conflicts.length ? conflicts : undefined };
     if (runId) await sb.from("sync_runs").update({ status: pending.length ? "incompleto" : "ok", finished_at: new Date().toISOString(), summary }).eq("id", runId);
     return res.status(200).json({ ok: true, ...summary });
   } catch (e) {

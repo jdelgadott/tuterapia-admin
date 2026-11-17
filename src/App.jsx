@@ -1066,15 +1066,23 @@ function SincronizacionView() {
       {msg&&<div style={{fontSize:12,color:P.red,marginTop:10}}>{msg}</div>}
       {result&&<div style={{marginTop:14,borderTop:`1px solid ${P.border}`,paddingTop:12}}>
         <div style={{fontSize:12,fontWeight:700,color:result.dryRun?P.accent:P.primary,marginBottom:8}}>{result.dryRun?"Modo prueba: no se escribió nada":"Datos actualizados"} · meses desde {result.from||"2026-01"} · motivos al {result.periodLabel}{result.ms?` · ${(result.ms/1000).toFixed(1)}s`:""}</div>
+        {/* Un cupón de la plataforma tiene que ser de una empresa sola. Los comodines esquivan
+            el unique de company_coupons, así que esto se chequea y se avisa. */}
+        {result.conflicts?.length>0&&<div style={{fontSize:12,color:P.red,fontWeight:700,marginBottom:8,lineHeight:1.5}}>
+          Hay cupones reclamados por más de una empresa. Esas sesiones se van a contar dos veces:
+          {result.conflicts.map(c=><div key={c.code} style={{fontWeight:400}}>· <b>{c.code}</b> → {c.companies.join(" y ")}</div>)}
+        </div>}
         {/* Vercel corta a los 60s. Si no llegó a todas, hay que decirlo fuerte: en modo real
             significa que unas empresas quedaron actualizadas y otras con los datos viejos. */}
         {result.pending?.length>0&&<div style={{fontSize:12,color:P.red,fontWeight:700,marginBottom:8,lineHeight:1.5}}>
-          No llegó a procesar {result.pending.length} empresa{result.pending.length>1?"s":""} por falta de tiempo: {result.pending.join(", ")}.
+          No alcanzó el tiempo para los totales de {result.pending.length} empresa{result.pending.length>1?"s":""}: {result.pending.join(", ")}.
+          {" "}Los cupones de todas sí se revisaron.
           {!result.dryRun&&" Las demás SÍ se actualizaron, así que los datos quedaron mezclados: volvé a sincronizar."}
         </div>}
         {result.companies.map(c=><div key={c.company} style={{padding:"8px 0",borderBottom:`1px solid ${P.border}`,fontSize:12}}>
           <b style={{color:P.text}}>{c.company}</b>{" "}
           {c.skipped?<span style={{color:P.accent}}>· {c.skipped} (cargalos en Configuración)</span>
+           :c.months===undefined?<span style={{color:P.accent}}>· {c.realCodes} cupones en la plataforma · totales pendientes</span>
            :<span style={{color:P.textMuted}}>· {c.months} meses · {c.reasons} motivos · {c.diffCount===0?"coincide con lo cargado ✓":`${c.diffCount} diferencias con lo cargado`}{c.ms?` · ${(c.ms/1000).toFixed(1)}s`:""}</span>}
           {c.unknownCodes?.length>0&&<div style={{color:P.red}}>Estos cupones no existen en la plataforma: {c.unknownCodes.join(", ")}</div>}
           {c.matched&&Object.entries(c.matched).map(([pat,list])=><div key={pat} style={{color:P.accent}}>Comodín <b>{pat}</b> encontró {list.length}: {list.slice(0,15).join(", ")}{list.length>15?` y ${list.length-15} más`:""}</div>)}
