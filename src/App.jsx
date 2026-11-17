@@ -868,8 +868,13 @@ function CuponesEmpresa({ companyId }) {
       <span style={{fontSize:11.5,color:P.text,lineHeight:1.5}}><b>Esta empresa usa un cupón por persona.</b>
         <span style={{color:P.textMuted}}> Marcalo y el dash muestra el total de sesiones sin abrirlo por cupón. Sin marcar, la barra se parte en un color por cupón y el cliente ve cuántas sesiones hizo cada colaborador.</span></span>
     </label>
-    {!perPerson&&rows.length>5&&<div style={{fontSize:11,color:P.red,background:P.redBg,border:`1px solid ${P.red}44`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
-      Esta empresa tiene {rows.length} cupones y la casilla de arriba está sin marcar: el dash del cliente va a abrir la barra de sesiones en {rows.length} colores, uno por cupón. Si son cupones por persona, marcala.
+    {/* Contar las filas no alcanza: un comodín es UNA fila y puede estar tapando decenas de
+        cupones reales. ISA Interfase tenía 4 filas y 24 cupones por persona detrás, así que el
+        aviso nunca saltaba. Un comodín es justamente el caso en que no se sabe cuántos son. */}
+    {!perPerson&&(rows.length>5||rows.some(r=>r.coupon_code?.includes("%")))&&<div style={{fontSize:11,color:P.red,background:P.redBg,border:`1px solid ${P.red}44`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+      {rows.some(r=>r.coupon_code?.includes("%"))
+        ? <>Esta empresa tiene cupones con comodín (%) y la casilla de arriba está sin marcar. Un comodín puede estar trayendo muchos cupones distintos, uno por persona, y entonces el dash del cliente abre la barra de sesiones con el código de cada colaborador. Si son cupones por persona, marcala.</>
+        : <>Esta empresa tiene {rows.length} cupones y la casilla de arriba está sin marcar: el dash del cliente va a abrir la barra de sesiones en {rows.length} colores, uno por cupón. Si son cupones por persona, marcala.</>}
     </div>}
     {report&&<div style={{fontSize:11,marginBottom:10,background:P.white,border:`1px solid ${P.border}`,borderRadius:8,padding:"8px 10px"}}>
       <div style={{color:P.text,fontWeight:600,marginBottom:3}}>Se leyeron {report.leidos} códigos · {report.agregados} agregados</div>
